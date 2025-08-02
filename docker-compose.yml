@@ -1,0 +1,237 @@
+version: '3.8'
+
+services:
+  # C++ Trading Engine
+  cpp-engine:
+    build:
+      context: ./cpp
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=postgres
+      - INFLUX_HOST=influxdb
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ./data:/app/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - postgres
+      - influxdb
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # Price Predictor Service
+  price-predictor:
+    build:
+      context: ./python/price_predictor
+      dockerfile: Dockerfile
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=postgres
+      - MODEL_PATH=/app/models
+    volumes:
+      - ./python/price_predictor/models:/app/models
+      - ./logs:/app/logs
+    ports:
+      - "5001:5001"
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # Sentiment Analyzer Service
+  sentiment-analyzer:
+    build:
+      context: ./python/sentiment_analyzer
+      dockerfile: Dockerfile
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - REDIS_HOST=redis
+      - TWITTER_API_KEY=${TWITTER_API_KEY}
+      - NEWS_API_KEY=${NEWS_API_KEY}
+    volumes:
+      - ./python/sentiment_analyzer/models:/app/models
+      - ./logs:/app/logs
+    ports:
+      - "5002:5002"
+    depends_on:
+      - redis
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # Signal Processor Service
+  signal-processor:
+    build:
+      context: ./python/signal_processor
+      dockerfile: Dockerfile
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=postgres
+    ports:
+      - "5003:5003"
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # React Dashboard
+  react-dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost:8080/api
+      - REACT_APP_WS_URL=ws://localhost:8080/ws
+      - REACT_APP_PRICE_PREDICTOR_URL=http://localhost:5001
+      - REACT_APP_SENTIMENT_URL=http://localhost:5002
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    ports:
+      - "3000:3000"
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # TradingView Webhook Server
+  tradingview-webhook:
+    build:
+      context: ./webhook
+      dockerfile: Dockerfile
+    environment:
+      - ENVIRONMENT=development
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - CPP_ENGINE_URL=http://cpp-engine:8080
+    ports:
+      - "8081:8081"
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=forex_bot
+      - POSTGRES_USER=forex_user
+      - POSTGRES_PASSWORD=forex_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # InfluxDB Time Series Database
+  influxdb:
+    image: influxdb:2.7-alpine
+    environment:
+      - INFLUXDB_DB=market_data
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=admin_password
+    volumes:
+      - influx-data:/var/lib/influxdb2
+    ports:
+      - "8086:8086"
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3001:3000"
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+  # NGINX Load Balancer (Development)
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./docker/nginx/nginx.dev.conf:/etc/nginx/nginx.conf
+    ports:
+      - "80:80"
+    depends_on:
+      - cpp-engine
+      - react-dashboard
+      - price-predictor
+      - sentiment-analyzer
+    networks:
+      - forex-network
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  postgres-data:
+  influx-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  forex-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
