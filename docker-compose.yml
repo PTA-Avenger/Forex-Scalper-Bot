@@ -4,12 +4,12 @@ services:
   # C++ Trading Engine
   cpp-engine:
     build:
-      context: ./cpp
-      dockerfile: Dockerfile
-      target: development
+      context: .
+      dockerfile: ./cpp/Dockerfile
+      target: production
     environment:
-      - ENVIRONMENT=development
-      - LOG_LEVEL=debug
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
       - REDIS_HOST=redis
       - POSTGRES_HOST=postgres
       - INFLUX_HOST=influxdb
@@ -20,21 +20,39 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - redis
-      - postgres
-      - influxdb
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
     networks:
       - forex-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
 
   # Price Predictor Service
   price-predictor:
     build:
       context: ./python/price_predictor
       dockerfile: Dockerfile
+      target: production
     environment:
-      - FLASK_ENV=development
-      - FLASK_DEBUG=1
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
       - REDIS_HOST=redis
       - POSTGRES_HOST=postgres
       - MODEL_PATH=/app/models
@@ -44,11 +62,27 @@ services:
     ports:
       - "5001:5001"
     depends_on:
-      - redis
-      - postgres
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - forex-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 2G
 
   # Sentiment Analyzer Service
   sentiment-analyzer:
@@ -96,21 +130,34 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: development
+      target: production
     environment:
-      - NODE_ENV=development
-      - REACT_APP_API_URL=http://localhost:8080/api
-      - REACT_APP_WS_URL=ws://localhost:8080/ws
-      - REACT_APP_PRICE_PREDICTOR_URL=http://localhost:5001
-      - REACT_APP_SENTIMENT_URL=http://localhost:5002
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      - NODE_ENV=production
+      - NGINX_PORT=3000
     ports:
       - "3000:3000"
+    depends_on:
+      cpp-engine:
+        condition: service_healthy
+      price-predictor:
+        condition: service_healthy
     networks:
       - forex-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # TradingView Webhook Server
   tradingview-webhook:
@@ -138,6 +185,20 @@ services:
     networks:
       - forex-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # PostgreSQL Database
   postgres:
@@ -145,7 +206,7 @@ services:
     environment:
       - POSTGRES_DB=forex_bot
       - POSTGRES_USER=forex_user
-      - POSTGRES_PASSWORD=forex_password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-forex_password}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -154,6 +215,20 @@ services:
     networks:
       - forex-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forex_user -d forex_bot"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # InfluxDB Time Series Database
   influxdb:
@@ -161,7 +236,7 @@ services:
     environment:
       - INFLUXDB_DB=market_data
       - INFLUXDB_ADMIN_USER=admin
-      - INFLUXDB_ADMIN_PASSWORD=admin_password
+      - INFLUXDB_ADMIN_PASSWORD=${INFLUXDB_PASSWORD:-admin_password}
     volumes:
       - influx-data:/var/lib/influxdb2
     ports:
@@ -169,6 +244,20 @@ services:
     networks:
       - forex-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # Prometheus Monitoring
   prometheus:

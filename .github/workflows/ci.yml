@@ -1,0 +1,433 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  CMAKE_VERSION: '3.22'
+
+jobs:
+  # C++ Engine Tests
+  cpp-tests:
+    runs-on: ubuntu-latest
+    name: C++ Engine Tests
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Cache CMake dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/cmake
+          build/_deps
+        key: ${{ runner.os }}-cmake-${{ hashFiles('CMakeLists.txt') }}
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          libboost-all-dev \
+          libssl-dev \
+          libcurl4-openssl-dev \
+          nlohmann-json3-dev \
+          libhiredis-dev \
+          postgresql-server-dev-all \
+          lcov \
+          pkg-config
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Debug \
+              -DCMAKE_CXX_FLAGS="--coverage" \
+              ..
+    
+    - name: Build C++ Engine
+      run: |
+        cd build
+        make -j$(nproc)
+    
+    - name: Run Unit Tests
+      run: |
+        cd build
+        ctest --output-on-failure --verbose -R "UnitTests"
+    
+    - name: Run Performance Tests
+      run: |
+        cd build
+        ctest --output-on-failure --verbose -R "PerformanceTests"
+    
+    - name: Generate Coverage Report
+      run: |
+        cd build
+        lcov --capture --directory . --output-file coverage.info
+        lcov --remove coverage.info '/usr/*' '*_deps/*' '*/tests/*' --output-file coverage.info
+        lcov --list coverage.info
+    
+    - name: Upload Coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./build/coverage.info
+        flags: cpp
+        name: cpp-coverage
+
+  # Python AI Services Tests
+  python-tests:
+    runs-on: ubuntu-latest
+    name: Python AI Services Tests
+    
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('python/requirements.txt') }}
+    
+    - name: Install Python dependencies
+      run: |
+        cd python
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Lint with flake8
+      run: |
+        cd python
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Type check with mypy
+      run: |
+        cd python
+        mypy --config-file=mypy.ini .
+    
+    - name: Format check with black
+      run: |
+        cd python
+        black --check --diff .
+    
+    - name: Run Python unit tests
+      run: |
+        cd python
+        pytest -v --tb=short --cov=. --cov-report=xml --cov-report=html
+    
+    - name: Run integration tests
+      run: |
+        cd python
+        pytest -v --tb=short -m integration
+      env:
+        REDIS_HOST: localhost
+        POSTGRES_HOST: localhost
+    
+    - name: Upload Python coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./python/coverage.xml
+        flags: python
+        name: python-coverage
+
+  # Frontend Tests
+  frontend-tests:
+    runs-on: ubuntu-latest
+    name: Frontend Tests
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+    
+    - name: Run ESLint
+      run: |
+        cd frontend
+        npm run lint
+    
+    - name: Run TypeScript check
+      run: |
+        cd frontend
+        npm run type-check
+    
+    - name: Run unit tests
+      run: |
+        cd frontend
+        npm run test:coverage
+    
+    - name: Build production bundle
+      run: |
+        cd frontend
+        npm run build
+    
+    - name: Upload frontend coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./frontend/coverage/lcov.info
+        flags: frontend
+        name: frontend-coverage
+
+  # Integration Tests with Services
+  integration-tests:
+    runs-on: ubuntu-latest
+    name: Full Integration Tests
+    needs: [cpp-tests, python-tests, frontend-tests]
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: test_user
+          POSTGRES_DB: forex_bot_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      influxdb:
+        image: influxdb:2.7-alpine
+        env:
+          INFLUXDB_DB: forex_bot_test
+          INFLUXDB_HTTP_AUTH_ENABLED: "false"
+        ports:
+          - 8086:8086
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Docker images
+      run: |
+        docker-compose build --parallel
+    
+    - name: Run integration tests
+      run: |
+        docker-compose up -d
+        sleep 30  # Wait for services to be ready
+        
+        # Test service health endpoints
+        curl -f http://localhost:8080/health || exit 1
+        curl -f http://localhost:5001/health || exit 1
+        curl -f http://localhost:3000 || exit 1
+        
+        # Run comprehensive integration tests
+        docker-compose exec -T cpp-engine ./build/integration_tests
+        docker-compose exec -T price-predictor pytest -m integration
+      env:
+        REDIS_HOST: localhost
+        POSTGRES_HOST: localhost
+        INFLUX_HOST: localhost
+    
+    - name: Check Docker logs on failure
+      if: failure()
+      run: |
+        docker-compose logs
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        docker-compose down -v
+
+  # Security and Quality Checks
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        ignore-unfixed: true
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Python security check with bandit
+      run: |
+        pip install bandit
+        cd python
+        bandit -r . -f json -o bandit-report.json || true
+    
+    - name: Node.js security audit
+      run: |
+        cd frontend
+        npm audit --audit-level=high
+
+  # Performance Benchmarks
+  performance-benchmarks:
+    runs-on: ubuntu-latest
+    name: Performance Benchmarks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run C++ performance benchmarks
+      run: |
+        mkdir -p build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+        make -j$(nproc) performance_tests
+        ./performance_tests --benchmark_format=json > benchmark_results.json
+    
+    - name: Store benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'googlecpp'
+        output-file-path: build/benchmark_results.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+
+  # Docker Image Build and Push
+  docker-build:
+    runs-on: ubuntu-latest
+    name: Build and Push Docker Images
+    needs: [integration-tests, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          forexbot/cpp-engine
+          forexbot/price-predictor
+          forexbot/frontend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=sha
+    
+    - name: Build and push C++ Engine
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./cpp/Dockerfile
+        push: true
+        tags: forexbot/cpp-engine:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build and push Price Predictor
+      uses: docker/build-push-action@v5
+      with:
+        context: ./python/price_predictor
+        push: true
+        tags: forexbot/price-predictor:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build and push Frontend
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        push: true
+        tags: forexbot/frontend:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Deployment (Production)
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Production
+    needs: [docker-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.PROD_HOST }}
+        username: ${{ secrets.PROD_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        script: |
+          cd /opt/forex-scalping-bot
+          git pull origin main
+          docker-compose pull
+          docker-compose up -d --remove-orphans
+          
+          # Health check
+          sleep 30
+          curl -f http://localhost/health || exit 1
+    
+    - name: Notify deployment success
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        text: "✅ Forex Bot deployed successfully to production"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      if: success()
+    
+    - name: Notify deployment failure
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        text: "❌ Forex Bot deployment failed"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      if: failure()
