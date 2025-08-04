@@ -17,6 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gemini_predictor import GeminiPredictor, MarketData, PredictionResult
 from sentiment_analyzer.gemini_sentiment import GeminiSentimentAnalyzer, NewsItem, SocialPost, SentimentResult
+from model_config import ModelManager, AVAILABLE_MODELS, print_available_models
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -370,6 +371,158 @@ def get_model_info():
     except Exception as e:
         logger.error(f"Error getting model info: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/models/available', methods=['GET'])
+def get_available_models():
+    """Get list of all available models"""
+    try:
+        models_info = {}
+        for model_name, config in AVAILABLE_MODELS.items():
+            models_info[model_name] = {
+                'display_name': config.display_name,
+                'description': config.description,
+                'multimodal': config.multimodal,
+                'context_window': config.context_window,
+                'max_tokens': config.max_tokens,
+                'rate_limit_rpm': config.rate_limit_rpm,
+                'recommended_temperature': config.recommended_temperature
+            }
+        
+        return jsonify({
+            'available_models': models_info,
+            'current_prediction_model': gemini_predictor.model_name,
+            'current_sentiment_model': sentiment_analyzer.model_name,
+            'recommendations': gemini_predictor.model_manager.get_recommended_models_for_trading(),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting available models: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/models/switch', methods=['POST'])
+def switch_model():
+    """Switch to a different model"""
+    try:
+        data = request.get_json()
+        
+        if 'model_name' not in data:
+            return jsonify({'error': 'Missing required field: model_name'}), 400
+        
+        model_name = data['model_name']
+        service = data.get('service', 'prediction')  # 'prediction' or 'sentiment'
+        
+        if model_name not in AVAILABLE_MODELS:
+            return jsonify({
+                'error': f'Model {model_name} not available',
+                'available_models': list(AVAILABLE_MODELS.keys())
+            }), 400
+        
+        success = False
+        old_model = None
+        
+        if service == 'prediction':
+            old_model = gemini_predictor.model_name
+            success = gemini_predictor.switch_model(model_name)
+        elif service == 'sentiment':
+            old_model = sentiment_analyzer.model_name
+            success = sentiment_analyzer.switch_model(model_name)
+        else:
+            return jsonify({'error': 'Invalid service. Must be "prediction" or "sentiment"'}), 400
+        
+        if success:
+            return jsonify({
+                'message': f'Successfully switched {service} model',
+                'old_model': old_model,
+                'new_model': model_name,
+                'service': service,
+                'timestamp': datetime.now().isoformat()
+            }), 200
+        else:
+            return jsonify({
+                'error': f'Failed to switch {service} model to {model_name}',
+                'current_model': old_model
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Error switching model: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/models/test', methods=['POST'])
+def test_model():
+    """Test a specific model with sample data"""
+    try:
+        data = request.get_json()
+        
+        if 'model_name' not in data:
+            return jsonify({'error': 'Missing required field: model_name'}), 400
+        
+        model_name = data['model_name']
+        test_type = data.get('test_type', 'prediction')
+        
+        if model_name not in AVAILABLE_MODELS:
+            return jsonify({
+                'error': f'Model {model_name} not available',
+                'available_models': list(AVAILABLE_MODELS.keys())
+            }), 400
+        
+        # Create temporary predictor with the test model
+        test_predictor = GeminiPredictor(GEMINI_API_KEY, model_name)
+        
+        # Create simple test data
+        test_df = pd.DataFrame({
+            'open': [1.0950, 1.0955, 1.0960],
+            'high': [1.0965, 1.0970, 1.0975],
+            'low': [1.0945, 1.0950, 1.0955],
+            'close': [1.0960, 1.0965, 1.0970],
+            'volume': [1000, 1100, 1200]
+        })
+        
+        # Calculate indicators
+        indicators = test_predictor.calculate_technical_indicators(test_df)
+        
+        # Create market data
+        market_data = MarketData(
+            symbol="EUR/USD",
+            timeframe="1h",
+            ohlcv=test_df,
+            indicators=indicators,
+            sentiment_score=0.2,
+            news_summary="Test market analysis"
+        )
+        
+        # Generate test prediction
+        start_time = datetime.now()
+        prediction = executor.submit(
+            run_async,
+            test_predictor.predict_price_movement(market_data)
+        ).result(timeout=30)
+        end_time = datetime.now()
+        
+        response_time = (end_time - start_time).total_seconds()
+        
+        return jsonify({
+            'model_name': model_name,
+            'test_type': test_type,
+            'test_result': 'success',
+            'response_time_seconds': response_time,
+            'prediction': {
+                'direction': prediction.direction,
+                'confidence': prediction.confidence,
+                'reasoning': prediction.reasoning[:200] + "..." if len(prediction.reasoning) > 200 else prediction.reasoning
+            },
+            'model_info': test_predictor.get_model_info(),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error testing model: {e}")
+        return jsonify({
+            'model_name': model_name,
+            'test_result': 'failed',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 @app.route('/cache-stats', methods=['GET'])
 def get_cache_stats():

@@ -15,6 +15,7 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import ta
 from dataclasses import dataclass
 import time
+from model_config import ModelManager, get_model_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -44,21 +45,31 @@ class PredictionResult:
 class GeminiPredictor:
     """Gemini-powered forex price predictor"""
     
-    def __init__(self, api_key: str, model_name: str = "gemini-1.5-pro"):
+    def __init__(self, api_key: str, model_name: str = None):
         """
         Initialize Gemini predictor
         
         Args:
             api_key: Google AI API key
-            model_name: Gemini model to use
+            model_name: Gemini model to use (if None, uses environment variable or default)
         """
         self.api_key = api_key
+        
+        # Initialize model manager
+        self.model_manager = ModelManager(api_key)
+        
+        # Set model name (from parameter, environment, or default)
+        if model_name is None:
+            model_name = get_model_from_env()
+        
         self.model_name = model_name
+        self.model_config = self.model_manager.get_model_config(model_name)
+        
         self._setup_gemini()
         
-        # Rate limiting
+        # Rate limiting based on model configuration
         self.last_request_time = 0
-        self.min_request_interval = 1.0  # 1 second between requests
+        self.min_request_interval = 60.0 / self.model_config.rate_limit_rpm  # Convert RPM to seconds
         
         # Prediction cache
         self.prediction_cache = {}
@@ -252,10 +263,10 @@ Provide only the JSON response without any additional text or markdown formattin
                 self.model.generate_content,
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.3,  # Lower temperature for more consistent financial analysis
+                    temperature=self.model_config.recommended_temperature,
                     top_p=0.8,
                     top_k=40,
-                    max_output_tokens=1024,
+                    max_output_tokens=min(1024, self.model_config.max_tokens),
                 )
             )
             
@@ -405,13 +416,38 @@ Provide only the JSON response without any additional text or markdown formattin
         """Get information about the current model"""
         return {
             'model_name': self.model_name,
+            'display_name': self.model_config.display_name,
             'provider': 'Google Gemini',
+            'multimodal': self.model_config.multimodal,
+            'context_window': self.model_config.context_window,
+            'max_tokens': self.model_config.max_tokens,
+            'rate_limit_rpm': self.model_config.rate_limit_rpm,
+            'description': self.model_config.description,
             'capabilities': [
                 'Technical Analysis',
                 'Market Sentiment',
                 'Multi-timeframe Analysis',
                 'Risk Assessment'
             ],
-            'supported_symbols': 'All major forex pairs',
-            'max_requests_per_minute': 60
+            'supported_symbols': 'All major forex pairs'
         }
+    
+    def switch_model(self, new_model_name: str) -> bool:
+        """Switch to a different model"""
+        try:
+            old_model = self.model_name
+            self.model_name = new_model_name
+            self.model_config = self.model_manager.get_model_config(new_model_name)
+            
+            # Update rate limiting
+            self.min_request_interval = 60.0 / self.model_config.rate_limit_rpm
+            
+            # Reinitialize Gemini with new model
+            self._setup_gemini()
+            
+            logger.info(f"Successfully switched from {old_model} to {new_model_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to switch to model {new_model_name}: {e}")
+            return False
