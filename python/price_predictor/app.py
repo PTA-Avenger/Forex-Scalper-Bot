@@ -9,18 +9,14 @@ from datetime import datetime, timedelta
 import os
 import sys
 from typing import Dict, List, Optional, Tuple
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 # Add the parent directory to the path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.lstm_model import LSTMPredictor
-from models.xgboost_model import XGBoostPredictor
-from models.ensemble_model import EnsemblePredictor
-from data.preprocessor import DataPreprocessor
-from data.feature_engineer import FeatureEngineer
-from config.settings import Config
-from common.database import DatabaseManager
-from common.redis_client import RedisManager
+from gemini_predictor import GeminiPredictor, MarketData, PredictionResult
+from sentiment_analyzer.gemini_sentiment import GeminiSentimentAnalyzer, NewsItem, SocialPost, SentimentResult
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -37,367 +33,374 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global components
-config = Config()
-redis_manager = RedisManager(config)
-db_manager = DatabaseManager(config)
-preprocessor = DataPreprocessor(config)
-feature_engineer = FeatureEngineer(config)
+# Configuration
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD')
 
-# Initialize models
-lstm_model = None
-xgboost_model = None
-ensemble_model = None
+if not GEMINI_API_KEY:
+    logger.error("GEMINI_API_KEY environment variable is required")
+    raise ValueError("GEMINI_API_KEY is required")
 
-def initialize_models():
-    """Initialize ML models"""
-    global lstm_model, xgboost_model, ensemble_model
-    
+# Initialize services
+redis_client = redis.Redis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    password=REDIS_PASSWORD,
+    decode_responses=True
+)
+
+# Initialize Gemini models
+gemini_predictor = GeminiPredictor(GEMINI_API_KEY)
+sentiment_analyzer = GeminiSentimentAnalyzer(GEMINI_API_KEY)
+
+# Thread pool for async operations
+executor = ThreadPoolExecutor(max_workers=4)
+
+def run_async(coro):
+    """Run async function in thread pool"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        logger.info("Initializing ML models...")
-        
-        # Initialize individual models
-        lstm_model = LSTMPredictor(config)
-        xgboost_model = XGBoostPredictor(config)
-        
-        # Load pre-trained models if they exist
-        if os.path.exists(config.LSTM_MODEL_PATH):
-            lstm_model.load_model(config.LSTM_MODEL_PATH)
-            logger.info("Loaded pre-trained LSTM model")
-        
-        if os.path.exists(config.XGBOOST_MODEL_PATH):
-            xgboost_model.load_model(config.XGBOOST_MODEL_PATH)
-            logger.info("Loaded pre-trained XGBoost model")
-        
-        # Initialize ensemble model
-        ensemble_model = EnsemblePredictor([lstm_model, xgboost_model], config)
-        
-        logger.info("ML models initialized successfully")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize models: {str(e)}")
-        return False
-
-def get_historical_data(symbol: str, timeframe: str, limit: int = 1000) -> pd.DataFrame:
-    """Get historical market data for a symbol"""
-    try:
-        # Try to get from cache first
-        cache_key = f"historical_data:{symbol}:{timeframe}:{limit}"
-        cached_data = redis_manager.get(cache_key)
-        
-        if cached_data:
-            logger.debug(f"Retrieved historical data from cache for {symbol}")
-            return pd.read_json(cached_data)
-        
-        # Get from database
-        query = """
-        SELECT timestamp, open, high, low, close, volume
-        FROM market_data 
-        WHERE symbol = %s AND timeframe = %s 
-        ORDER BY timestamp DESC 
-        LIMIT %s
-        """
-        
-        data = db_manager.fetch_all(query, (symbol, timeframe, limit))
-        
-        if not data:
-            logger.warning(f"No historical data found for {symbol}")
-            return pd.DataFrame()
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df = df.sort_values('timestamp').reset_index(drop=True)
-        
-        # Cache the result
-        redis_manager.setex(cache_key, 300, df.to_json())  # 5 minute cache
-        
-        logger.debug(f"Retrieved {len(df)} historical data points for {symbol}")
-        return df
-        
-    except Exception as e:
-        logger.error(f"Error getting historical data for {symbol}: {str(e)}")
-        return pd.DataFrame()
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     try:
-        # Check model status
-        models_ready = all([
-            lstm_model is not None,
-            xgboost_model is not None,
-            ensemble_model is not None
-        ])
+        # Test Redis connection
+        redis_client.ping()
         
-        # Check Redis connection
-        redis_status = redis_manager.ping()
+        # Test Gemini connection (simple model info call)
+        model_info = gemini_predictor.get_model_info()
         
-        # Check database connection
-        db_status = db_manager.test_connection()
-        
-        status = {
-            'status': 'healthy' if all([models_ready, redis_status, db_status]) else 'unhealthy',
-            'service': 'price_predictor',
-            'models_ready': models_ready,
-            'redis_connected': redis_status,
-            'database_connected': db_status,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        return jsonify(status), 200 if status['status'] == 'healthy' else 503
-        
-    except Exception as e:
-        logger.error(f"Health check error: {str(e)}")
         return jsonify({
-            'status': 'error',
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'services': {
+                'redis': 'connected',
+                'gemini_predictor': 'connected',
+                'sentiment_analyzer': 'connected'
+            },
+            'model_info': model_info
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'unhealthy',
             'error': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now().isoformat()
         }), 500
 
 @app.route('/predict', methods=['POST'])
 def predict_price():
-    """Generate price predictions"""
+    """Generate price prediction using Gemini"""
     try:
-        data = request.json
+        data = request.get_json()
         
         # Validate input
-        required_fields = ['symbol']
+        required_fields = ['symbol', 'timeframe', 'ohlcv_data']
         for field in required_fields:
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
         
         symbol = data['symbol']
-        timeframe = data.get('timeframe', '1m')
-        horizon = data.get('horizon', 1)
-        model_type = data.get('model', 'ensemble')  # 'lstm', 'xgboost', 'ensemble'
+        timeframe = data['timeframe']
+        ohlcv_data = data['ohlcv_data']
         
-        logger.info(f"Prediction request: {symbol}, {timeframe}, horizon={horizon}, model={model_type}")
+        # Convert OHLCV data to DataFrame
+        df = pd.DataFrame(ohlcv_data)
         
-        # Get historical data
-        historical_data = get_historical_data(symbol, timeframe, limit=2000)
+        # Ensure required columns
+        required_columns = ['open', 'high', 'low', 'close']
+        for col in required_columns:
+            if col not in df.columns:
+                return jsonify({'error': f'Missing OHLCV column: {col}'}), 400
         
-        if historical_data.empty:
-            return jsonify({'error': f'No historical data available for {symbol}'}), 404
+        # Calculate technical indicators
+        indicators = gemini_predictor.calculate_technical_indicators(df)
         
-        # Preprocess data
-        processed_data = preprocessor.process(historical_data)
+        # Get sentiment data if provided
+        sentiment_score = data.get('sentiment_score')
+        news_summary = data.get('news_summary')
         
-        if processed_data is None or len(processed_data) < 100:
-            return jsonify({'error': 'Insufficient data for prediction'}), 400
+        # Create market data object
+        market_data = MarketData(
+            symbol=symbol,
+            timeframe=timeframe,
+            ohlcv=df,
+            indicators=indicators,
+            sentiment_score=sentiment_score,
+            news_summary=news_summary
+        )
         
-        # Generate predictions based on model type
-        predictions = {}
-        confidence_scores = {}
+        # Generate prediction using Gemini
+        prediction = executor.submit(
+            run_async,
+            gemini_predictor.predict_price_movement(market_data)
+        ).result(timeout=60)  # 60 second timeout
         
-        if model_type in ['lstm', 'ensemble']:
-            try:
-                lstm_pred = lstm_model.predict(processed_data, horizon)
-                predictions['lstm'] = lstm_pred.tolist() if isinstance(lstm_pred, np.ndarray) else [lstm_pred]
-                confidence_scores['lstm'] = lstm_model.get_confidence() if hasattr(lstm_model, 'get_confidence') else 0.5
-            except Exception as e:
-                logger.error(f"LSTM prediction error: {str(e)}")
-                predictions['lstm'] = [0.0] * horizon
-                confidence_scores['lstm'] = 0.0
-        
-        if model_type in ['xgboost', 'ensemble']:
-            try:
-                xgb_pred = xgboost_model.predict(processed_data, horizon)
-                predictions['xgboost'] = xgb_pred.tolist() if isinstance(xgb_pred, np.ndarray) else [xgb_pred]
-                confidence_scores['xgboost'] = xgboost_model.get_confidence() if hasattr(xgboost_model, 'get_confidence') else 0.5
-            except Exception as e:
-                logger.error(f"XGBoost prediction error: {str(e)}")
-                predictions['xgboost'] = [0.0] * horizon
-                confidence_scores['xgboost'] = 0.0
-        
-        if model_type == 'ensemble':
-            try:
-                ensemble_pred = ensemble_model.predict(processed_data, horizon)
-                predictions['ensemble'] = ensemble_pred.tolist() if isinstance(ensemble_pred, np.ndarray) else [ensemble_pred]
-                confidence_scores['ensemble'] = ensemble_model.get_confidence()
-            except Exception as e:
-                logger.error(f"Ensemble prediction error: {str(e)}")
-                predictions['ensemble'] = [0.0] * horizon
-                confidence_scores['ensemble'] = 0.0
-        
-        # Calculate prediction metadata
-        current_price = float(historical_data['close'].iloc[-1])
-        
-        # Use ensemble prediction as primary if available, otherwise use requested model
-        primary_prediction = predictions.get('ensemble', predictions.get(model_type, [current_price]))
-        primary_confidence = confidence_scores.get('ensemble', confidence_scores.get(model_type, 0.0))
-        
-        # Calculate price change and direction
-        if len(primary_prediction) > 0:
-            predicted_price = primary_prediction[0]
-            price_change = predicted_price - current_price
-            price_change_pct = (price_change / current_price) * 100
-            direction = 'bullish' if price_change > 0 else 'bearish' if price_change < 0 else 'neutral'
-        else:
-            predicted_price = current_price
-            price_change = 0.0
-            price_change_pct = 0.0
-            direction = 'neutral'
-        
-        result = {
-            'symbol': symbol,
-            'timeframe': timeframe,
-            'horizon': horizon,
-            'current_price': current_price,
-            'predicted_price': predicted_price,
-            'price_change': price_change,
-            'price_change_pct': price_change_pct,
-            'direction': direction,
-            'confidence': primary_confidence,
-            'predictions': predictions,
-            'confidence_scores': confidence_scores,
-            'model_used': model_type,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        # Cache the result
-        cache_key = f"prediction:{symbol}:{timeframe}:{horizon}:{model_type}"
-        redis_manager.setex(cache_key, 60, json.dumps(result))  # 1 minute cache
-        
-        logger.info(f"Prediction completed for {symbol}: {direction} ({price_change_pct:.2f}%)")
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Prediction error: {str(e)}")
-        return jsonify({
-            'error': str(e),
-            'timestamp': datetime.utcnow().isoformat()
-        }), 500
-
-@app.route('/batch_predict', methods=['POST'])
-def batch_predict():
-    """Generate predictions for multiple symbols"""
-    try:
-        data = request.json
-        symbols = data.get('symbols', [])
-        timeframe = data.get('timeframe', '1m')
-        horizon = data.get('horizon', 1)
-        model_type = data.get('model', 'ensemble')
-        
-        if not symbols:
-            return jsonify({'error': 'No symbols provided'}), 400
-        
-        results = {}
-        
-        for symbol in symbols:
-            try:
-                # Make individual prediction request
-                pred_data = {
-                    'symbol': symbol,
-                    'timeframe': timeframe,
-                    'horizon': horizon,
-                    'model': model_type
-                }
-                
-                # Simulate internal request
-                with app.test_request_context('/predict', json=pred_data, method='POST'):
-                    response = predict_price()
-                    if response[1] == 200:  # Success
-                        results[symbol] = response[0].get_json()
-                    else:
-                        results[symbol] = {'error': 'Prediction failed'}
-                        
-            except Exception as e:
-                logger.error(f"Batch prediction error for {symbol}: {str(e)}")
-                results[symbol] = {'error': str(e)}
-        
-        return jsonify({
-            'results': results,
-            'timestamp': datetime.utcnow().isoformat()
-        })
-        
-    except Exception as e:
-        logger.error(f"Batch prediction error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/retrain', methods=['POST'])
-def retrain_models():
-    """Trigger model retraining"""
-    try:
-        data = request.json
-        symbol = data.get('symbol', 'ALL')
-        model_type = data.get('model', 'ensemble')
-        
-        # Add retraining task to queue
-        training_task = {
-            'symbol': symbol,
-            'model_type': model_type,
-            'timestamp': datetime.utcnow().isoformat(),
-            'status': 'queued'
-        }
-        
-        # Add to Redis queue for background processing
-        redis_manager.lpush('training_queue', json.dumps(training_task))
-        
-        logger.info(f"Retraining queued for {symbol} ({model_type})")
-        
-        return jsonify({
-            'message': 'Retraining queued successfully',
-            'symbol': symbol,
-            'model_type': model_type,
-            'task_id': f"train_{symbol}_{int(datetime.utcnow().timestamp())}"
-        })
-        
-    except Exception as e:
-        logger.error(f"Retraining error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/model_info', methods=['GET'])
-def get_model_info():
-    """Get information about loaded models"""
-    try:
-        info = {
-            'lstm': {
-                'loaded': lstm_model is not None,
-                'architecture': lstm_model.get_architecture() if lstm_model and hasattr(lstm_model, 'get_architecture') else None,
-                'last_trained': lstm_model.get_last_trained() if lstm_model and hasattr(lstm_model, 'get_last_trained') else None
-            },
-            'xgboost': {
-                'loaded': xgboost_model is not None,
-                'feature_importance': xgboost_model.get_feature_importance() if xgboost_model and hasattr(xgboost_model, 'get_feature_importance') else None,
-                'last_trained': xgboost_model.get_last_trained() if xgboost_model and hasattr(xgboost_model, 'get_last_trained') else None
-            },
-            'ensemble': {
-                'loaded': ensemble_model is not None,
-                'weights': ensemble_model.get_weights() if ensemble_model and hasattr(ensemble_model, 'get_weights') else None
+        # Format response
+        response = {
+            'symbol': prediction.symbol,
+            'direction': prediction.direction,
+            'confidence': prediction.confidence,
+            'target_price': prediction.target_price,
+            'stop_loss': prediction.stop_loss,
+            'time_horizon': prediction.time_horizon,
+            'reasoning': prediction.reasoning,
+            'risk_level': prediction.risk_level,
+            'timestamp': prediction.timestamp.isoformat(),
+            'technical_indicators': indicators,
+            'model_info': {
+                'provider': 'Google Gemini',
+                'model': gemini_predictor.model_name
             }
         }
         
-        return jsonify(info)
+        # Cache the prediction
+        cache_key = f"prediction:{symbol}:{timeframe}:{int(datetime.now().timestamp() // 300)}"
+        redis_client.setex(cache_key, 300, json.dumps(response))  # 5 minute cache
+        
+        logger.info(f"Generated prediction for {symbol}: {prediction.direction} ({prediction.confidence:.2f})")
+        
+        return jsonify(response), 200
         
     except Exception as e:
-        logger.error(f"Model info error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error generating prediction: {e}")
+        return jsonify({
+            'error': 'Prediction generation failed',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
-@app.route('/metrics', methods=['GET'])
-def get_metrics():
-    """Get service metrics for monitoring"""
+@app.route('/sentiment', methods=['POST'])
+def analyze_sentiment():
+    """Analyze market sentiment using Gemini"""
     try:
-        # Get prediction statistics from Redis
-        stats = redis_manager.hgetall('prediction_stats') or {}
+        data = request.get_json()
         
-        metrics = {
-            'predictions_made': int(stats.get('predictions_made', 0)),
-            'cache_hits': int(stats.get('cache_hits', 0)),
-            'cache_misses': int(stats.get('cache_misses', 0)),
-            'errors': int(stats.get('errors', 0)),
-            'avg_response_time': float(stats.get('avg_response_time', 0)),
-            'uptime': (datetime.utcnow() - datetime.fromisoformat(stats.get('start_time', datetime.utcnow().isoformat()))).total_seconds() if 'start_time' in stats else 0
+        # Validate input
+        if 'symbol' not in data:
+            return jsonify({'error': 'Missing required field: symbol'}), 400
+        
+        symbol = data['symbol']
+        
+        # Parse news items
+        news_items = []
+        for item_data in data.get('news', []):
+            news_items.append(NewsItem(
+                title=item_data.get('title', ''),
+                content=item_data.get('content', ''),
+                source=item_data.get('source', 'Unknown'),
+                url=item_data.get('url', ''),
+                published_at=datetime.fromisoformat(item_data.get('published_at', datetime.now().isoformat())),
+                symbol=symbol
+            ))
+        
+        # Parse social posts
+        social_posts = []
+        for post_data in data.get('social', []):
+            social_posts.append(SocialPost(
+                content=post_data.get('content', ''),
+                platform=post_data.get('platform', 'Unknown'),
+                author=post_data.get('author', 'Anonymous'),
+                engagement=post_data.get('engagement', 0),
+                posted_at=datetime.fromisoformat(post_data.get('posted_at', datetime.now().isoformat())),
+                symbol=symbol
+            ))
+        
+        # Generate sentiment analysis using Gemini
+        sentiment = executor.submit(
+            run_async,
+            sentiment_analyzer.analyze_sentiment(symbol, news_items, social_posts)
+        ).result(timeout=60)  # 60 second timeout
+        
+        # Format response
+        response = {
+            'symbol': sentiment.symbol,
+            'overall_sentiment': sentiment.overall_sentiment,
+            'confidence': sentiment.confidence,
+            'key_themes': sentiment.key_themes,
+            'news_sentiment': sentiment.news_sentiment,
+            'social_sentiment': sentiment.social_sentiment,
+            'risk_factors': sentiment.risk_factors,
+            'opportunities': sentiment.opportunities,
+            'summary': sentiment.summary,
+            'timestamp': sentiment.timestamp.isoformat(),
+            'model_info': {
+                'provider': 'Google Gemini',
+                'model': sentiment_analyzer.model_name
+            }
         }
         
-        return jsonify(metrics)
+        # Cache the sentiment
+        cache_key = f"sentiment:{symbol}:{int(datetime.now().timestamp() // 600)}"
+        redis_client.setex(cache_key, 600, json.dumps(response))  # 10 minute cache
+        
+        logger.info(f"Generated sentiment for {symbol}: {sentiment.overall_sentiment:.2f} ({sentiment.confidence:.2f})")
+        
+        return jsonify(response), 200
         
     except Exception as e:
-        logger.error(f"Metrics error: {str(e)}")
+        logger.error(f"Error generating sentiment: {e}")
+        return jsonify({
+            'error': 'Sentiment analysis failed',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/multi-timeframe', methods=['POST'])
+def multi_timeframe_analysis():
+    """Analyze multiple timeframes for comprehensive view"""
+    try:
+        data = request.get_json()
+        
+        # Validate input
+        required_fields = ['symbol', 'timeframes']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        symbol = data['symbol']
+        timeframes = data['timeframes']
+        
+        # Prepare market data for each timeframe
+        market_data_dict = {}
+        for tf_data in timeframes:
+            timeframe = tf_data['timeframe']
+            ohlcv_data = tf_data['ohlcv_data']
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(ohlcv_data)
+            
+            # Calculate indicators
+            indicators = gemini_predictor.calculate_technical_indicators(df)
+            
+            market_data_dict[timeframe] = MarketData(
+                symbol=symbol,
+                timeframe=timeframe,
+                ohlcv=df,
+                indicators=indicators,
+                sentiment_score=data.get('sentiment_score'),
+                news_summary=data.get('news_summary')
+            )
+        
+        # Analyze multiple timeframes
+        predictions = executor.submit(
+            run_async,
+            gemini_predictor.analyze_multiple_timeframes(symbol, market_data_dict)
+        ).result(timeout=120)  # 2 minute timeout for multiple timeframes
+        
+        # Format response
+        response = {
+            'symbol': symbol,
+            'timeframes': {},
+            'overall_consensus': None,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Process each timeframe prediction
+        consensus_scores = []
+        for timeframe, prediction in predictions.items():
+            response['timeframes'][timeframe] = {
+                'direction': prediction.direction,
+                'confidence': prediction.confidence,
+                'target_price': prediction.target_price,
+                'stop_loss': prediction.stop_loss,
+                'reasoning': prediction.reasoning,
+                'risk_level': prediction.risk_level
+            }
+            
+            # Add to consensus calculation
+            direction_score = 1 if prediction.direction == 'BUY' else (-1 if prediction.direction == 'SELL' else 0)
+            consensus_scores.append(direction_score * prediction.confidence)
+        
+        # Calculate overall consensus
+        if consensus_scores:
+            avg_consensus = np.mean(consensus_scores)
+            if avg_consensus > 0.3:
+                consensus_direction = 'BUY'
+            elif avg_consensus < -0.3:
+                consensus_direction = 'SELL'
+            else:
+                consensus_direction = 'HOLD'
+            
+            response['overall_consensus'] = {
+                'direction': consensus_direction,
+                'strength': abs(avg_consensus),
+                'agreement': len([s for s in consensus_scores if (s > 0) == (avg_consensus > 0)]) / len(consensus_scores)
+            }
+        
+        logger.info(f"Generated multi-timeframe analysis for {symbol}")
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"Error in multi-timeframe analysis: {e}")
+        return jsonify({
+            'error': 'Multi-timeframe analysis failed',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/model-info', methods=['GET'])
+def get_model_info():
+    """Get information about the AI models"""
+    try:
+        predictor_info = gemini_predictor.get_model_info()
+        sentiment_info = sentiment_analyzer.get_model_info()
+        
+        return jsonify({
+            'prediction_model': predictor_info,
+            'sentiment_model': sentiment_info,
+            'deployment_info': {
+                'version': '2.0.0',
+                'deployment_type': 'Gemini API',
+                'hardware_requirements': 'None (Cloud-based)',
+                'latency': 'Low (API-based)',
+                'scalability': 'High'
+            },
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting model info: {e}")
         return jsonify({'error': str(e)}), 500
 
-# Error handlers
+@app.route('/cache-stats', methods=['GET'])
+def get_cache_stats():
+    """Get cache statistics"""
+    try:
+        # Get cache keys
+        prediction_keys = redis_client.keys('prediction:*')
+        sentiment_keys = redis_client.keys('sentiment:*')
+        
+        stats = {
+            'prediction_cache': {
+                'entries': len(prediction_keys),
+                'keys': prediction_keys[:10]  # Show first 10
+            },
+            'sentiment_cache': {
+                'entries': len(sentiment_keys),
+                'keys': sentiment_keys[:10]  # Show first 10
+            },
+            'redis_info': {
+                'connected': True,
+                'memory_usage': redis_client.info().get('used_memory_human', 'Unknown')
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify(stats), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting cache stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint not found'}), 404
@@ -407,20 +410,12 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Initialize models on startup
-    if not initialize_models():
-        logger.error("Failed to initialize models. Exiting.")
-        sys.exit(1)
+    logger.info("Starting Gemini-powered Price Predictor Service")
+    logger.info(f"Using Gemini model: {gemini_predictor.model_name}")
+    logger.info(f"Redis connected: {REDIS_HOST}:{REDIS_PORT}")
     
-    # Record start time
-    redis_manager.hset('prediction_stats', 'start_time', datetime.utcnow().isoformat())
-    
-    logger.info("Price Predictor Service starting...")
-    
-    # Run the Flask app
     app.run(
         host='0.0.0.0',
-        port=config.PRICE_PREDICTOR_PORT,
-        debug=config.DEBUG,
-        threaded=True
+        port=5001,
+        debug=os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     )
