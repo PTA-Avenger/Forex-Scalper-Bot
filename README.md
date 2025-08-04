@@ -201,6 +201,9 @@ nano .env
 # Add your Gemini API key (get from https://makersuite.google.com/app/apikey)
 # GEMINI_API_KEY=your_gemini_api_key_here
 
+# Optional: Choose your preferred model (default: gemini-1.5-pro)
+# GEMINI_MODEL=gemma-3n-e4b-it
+
 # Build and start services
 docker-compose up -d
 
@@ -209,6 +212,10 @@ curl http://localhost/health
 
 # Test Gemini integration
 cd python && python test_gemini_integration.py
+
+# Test different models
+python model_tester.py --list
+python model_tester.py --model gemma-3n-e4b-it
 ```
 
 ### Configuration
