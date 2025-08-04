@@ -20,12 +20,12 @@ A comprehensive, high-performance Forex scalping bot with advanced AI integratio
 - **Sophisticated risk management** with dynamic position sizing
 - **Comprehensive backtesting** engine with realistic simulation
 
-### AI-Powered Intelligence (Python)
-- **LSTM neural networks** for price prediction
-- **XGBoost ensemble** methods for feature-based forecasting
+### AI-Powered Intelligence (Gemini API)
+- **Google Gemini 1.5 Pro** for intelligent market analysis
+- **Advanced pattern recognition** without local GPU requirements
 - **Real-time sentiment analysis** from news and social media
-- **Fine-tuned BERT models** for financial text analysis
-- **Automated model training** and performance optimization
+- **Natural language reasoning** for trading decisions
+- **Cloud-based AI** with automatic scaling and updates
 
 ### Professional Dashboard (React)
 - **Real-time visualization** with TradingView integration
@@ -114,12 +114,11 @@ graph TB
 - **spdlog** - High-performance logging
 - **nlohmann/json** - JSON processing
 
-### AI/ML Services
-- **Python 3.11+** - AI microservices
-- **TensorFlow/Keras** - LSTM neural networks
-- **XGBoost** - Gradient boosting ensemble
-- **Transformers** - BERT sentiment analysis
-- **scikit-learn** - Feature engineering and preprocessing
+### AI Services
+- **Python 3.11+** - Lightweight AI microservices
+- **Google Gemini API** - Advanced language model for market analysis
+- **Technical Analysis** - Comprehensive indicator calculations
+- **Sentiment Processing** - Multi-source sentiment aggregation
 - **Flask** - RESTful API services
 
 ### Frontend
@@ -183,7 +182,8 @@ graph TB
 - **Linux/macOS** (Ubuntu 22.04+ recommended)
 - **Docker** and **Docker Compose**
 - **Git** version control
-- **8GB+ RAM** and **4+ CPU cores**
+- **4GB+ RAM** and **2+ CPU cores** (reduced requirements)
+- **Google Gemini API Key** (free tier available)
 
 ### Installation
 
@@ -198,11 +198,17 @@ cp .env.example .env
 # Edit configuration with your API keys
 nano .env
 
+# Add your Gemini API key (get from https://makersuite.google.com/app/apikey)
+# GEMINI_API_KEY=your_gemini_api_key_here
+
 # Build and start services
 docker-compose up -d
 
 # Verify deployment
 curl http://localhost/health
+
+# Test Gemini integration
+cd python && python test_gemini_integration.py
 ```
 
 ### Configuration

@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for Python Price Predictor
+# Lightweight Dockerfile for Gemini-powered Price Predictor
 FROM python:3.11-slim AS base
 
 # Set environment variables
@@ -8,11 +8,9 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install minimal system dependencies (removed heavy ML dependencies)
 RUN apt-get update && apt-get install -y \
     curl \
-    gcc \
-    g++ \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -69,15 +67,13 @@ FROM dependencies AS production
 
 WORKDIR /app
 
-# Copy only necessary files
+# Copy only necessary files (removed model directories as we use Gemini API)
 COPY app.py /app/
-COPY models/ /app/models/
-COPY data/ /app/data/
-COPY config/ /app/config/
-COPY common/ /app/common/
+COPY gemini_predictor.py /app/
+COPY sentiment_analyzer/ /app/sentiment_analyzer/
 
-# Create directories for logs and models
-RUN mkdir -p /app/logs /app/trained_models \
+# Create directories for logs (no need for model storage with Gemini API)
+RUN mkdir -p /app/logs \
     && chown -R forex:forex /app
 
 # Switch to non-root user
@@ -86,8 +82,8 @@ USER forex
 # Environment variables
 ENV FLASK_ENV=production \
     FLASK_DEBUG=0 \
-    WORKERS=4 \
-    TIMEOUT=30 \
+    WORKERS=2 \
+    TIMEOUT=60 \
     KEEP_ALIVE=2 \
     LOG_LEVEL=info
 
@@ -101,8 +97,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # Use Gunicorn for production
 CMD ["gunicorn", \
      "--bind", "0.0.0.0:5001", \
-     "--workers", "4", \
-     "--timeout", "30", \
+     "--workers", "2", \
+     "--timeout", "60", \
      "--keep-alive", "2", \
      "--log-level", "info", \
      "--access-logfile", "-", \
