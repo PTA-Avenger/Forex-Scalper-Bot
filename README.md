@@ -46,8 +46,8 @@ A comprehensive, high-performance Forex scalping bot with advanced AI integratio
 ```mermaid
 graph TB
     subgraph "External APIs"
-        OANDA[OANDA API]
-        MT[MetaTrader API]
+        FXCM[FXCM API]
+        GEMINI[Google Gemini API]
         TV[TradingView Webhooks]
         NEWS[News APIs]
         SOCIAL[Social Media APIs]
@@ -61,9 +61,9 @@ graph TB
         BACKTEST[Backtesting Engine]
     end
     
-    subgraph "AI Services (Python)"
-        LSTM[LSTM Predictor]
-        XGB[XGBoost Ensemble]
+    subgraph "Trading Services (Python)"
+        FXCM_SVC[FXCM Service]
+        GEMINI_PRED[Gemini Predictor]
         SENTIMENT[Sentiment Analyzer]
         SIGNAL[Signal Processor]
     end
@@ -80,19 +80,20 @@ graph TB
         INFLUX[(InfluxDB)]
     end
     
-    OANDA --> ENGINE
-    MT --> ENGINE
+    FXCM --> FXCM_SVC
+    GEMINI --> GEMINI_PRED
     TV --> ENGINE
     NEWS --> SENTIMENT
     SOCIAL --> SENTIMENT
     
+    FXCM_SVC --> ENGINE
     ENGINE --> MARKET
     ENGINE --> STRATEGY
     ENGINE --> RISK
     ENGINE --> BACKTEST
     
-    STRATEGY --> LSTM
-    STRATEGY --> XGB
+    STRATEGY --> GEMINI_PRED
+    GEMINI_PRED --> SIGNAL
     SENTIMENT --> SIGNAL
     
     ENGINE --> DASHBOARD
@@ -184,6 +185,7 @@ graph TB
 - **Git** version control
 - **4GB+ RAM** and **2+ CPU cores** (reduced requirements)
 - **Google Gemini API Key** (free tier available)
+- **FXCM API Access Token** (demo account available)
 
 ### Installation
 
@@ -198,8 +200,9 @@ cp .env.example .env
 # Edit configuration with your API keys
 nano .env
 
-# Add your Gemini API key (get from https://makersuite.google.com/app/apikey)
-# GEMINI_API_KEY=your_gemini_api_key_here
+# Add your API keys
+# GEMINI_API_KEY=your_gemini_api_key_here (get from https://makersuite.google.com/app/apikey)
+# FXCM_ACCESS_TOKEN=your_fxcm_access_token_here (get from https://www.fxcm.com/services/api-trading/)
 
 # Optional: Choose your preferred model (default: gemini-1.5-pro)
 # GEMINI_MODEL=gemma-3n-e4b-it
@@ -216,6 +219,9 @@ cd python && python test_gemini_integration.py
 # Test different models
 python model_tester.py --list
 python model_tester.py --model gemma-3n-e4b-it
+
+# Test FXCM integration
+make test-fxcm
 ```
 
 ### Configuration
@@ -313,6 +319,7 @@ npm test
 ## 📚 Documentation
 
 - [**Architecture Guide**](ARCHITECTURE.md) - System architecture overview
+- [**FXCM Migration Guide**](FXCM_MIGRATION_GUIDE.md) - Migration from OANDA to FXCM
 - [**Technical Specifications**](TECHNICAL_SPECIFICATIONS.md) - Detailed technical specs
 - [**Implementation Guide**](IMPLEMENTATION_GUIDE.md) - Step-by-step implementation
 - [**Deployment Guide**](DEPLOYMENT_SPECIFICATIONS.md) - Production deployment

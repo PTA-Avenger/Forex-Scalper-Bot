@@ -197,6 +197,27 @@ security-scan:
 	cd python && bandit -r .
 	cd frontend && npm audit
 
+# FXCM Testing
+test-fxcm:
+	@echo "🧪 Testing FXCM integration..."
+	cd python/fxcm_service && python test_fxcm_integration.py
+
+test-all: test test-fxcm
+	@echo "🎉 All tests completed!"
+
+# Multi-Broker Support
+up-mt5:
+	@echo "🚀 Starting services with MT5 support..."
+	docker-compose --profile mt5 up -d
+
+up-fxcm:
+	@echo "🚀 Starting services with FXCM only..."
+	docker-compose up -d
+
+up-all-brokers:
+	@echo "🚀 Starting services with all brokers..."
+	docker-compose --profile mt5 up -d
+
 # Cleanup
 clean:
 	@echo "Cleaning build artifacts..."
@@ -220,7 +241,11 @@ quick-start: dev-setup docker-build docker-up
 	@echo "📊 Dashboard: http://localhost:3000"
 	@echo "🔧 API: http://localhost:8080"
 	@echo "🤖 Gemini AI Service: http://localhost:5001"
+	@echo "💱 FXCM Trading Service: http://localhost:5004"
+	@echo "📈 Signal Processor: http://localhost:5006"
 	@echo ""
-	@echo "⚠️  Make sure to set GEMINI_API_KEY in your .env file"
+	@echo "⚠️  Make sure to set GEMINI_API_KEY and FXCM_ACCESS_TOKEN in your .env file"
+	@echo "💡 Optional: Enable MT5 with 'make up-mt5' (requires MT5 credentials)"
 	@echo "Use 'make health' to check service status"
 	@echo "Use 'make logs' to view application logs"
+	@echo "Use 'make test-fxcm' to test FXCM integration"
