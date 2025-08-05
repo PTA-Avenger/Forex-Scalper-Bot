@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fxcm_client import FXCMClient, FXCMConfig, OrderRequest, create_fxcm_client
+from simple_fxcm_client import SimpleFXCMClient, FXCMConfig, OrderRequest, create_fxcm_client
 
 # Load environment variables
 load_dotenv()
@@ -57,7 +57,14 @@ redis_client = redis.Redis(
 )
 
 # Initialize FXCM client
-fxcm_client = create_fxcm_client(FXCM_ACCESS_TOKEN, FXCM_SERVER_TYPE)
+fxcm_client = create_fxcm_client()
+# Connect during startup
+try:
+    fxcm_client.connect()
+    logger.info("FXCM client connection initiated")
+except Exception as e:
+    logger.warning(f"FXCM connection failed during startup: {e}")
+    logger.info("Service will start anyway - connection can be retried via API")
 
 # Thread pool for async operations
 executor = ThreadPoolExecutor(max_workers=4)
@@ -79,7 +86,7 @@ def health_check():
         redis_client.ping()
         
         # Test FXCM connection
-        if not fxcm_client.is_connected:
+        if not fxcm_client.connected:
             return jsonify({
                 'status': 'unhealthy',
                 'error': 'FXCM not connected',
@@ -407,8 +414,8 @@ def get_cache_stats():
                 'account_cache': account_cache_info
             },
             'connection_status': {
-                'fxcm_connected': fxcm_client.is_connected,
-                'fxcm_streaming': fxcm_client.is_streaming
+                'fxcm_connected': fxcm_client.connected,
+                'fxcm_streaming': getattr(fxcm_client, 'streaming', False)
             },
             'timestamp': datetime.now().isoformat()
         }), 200
@@ -424,15 +431,15 @@ def get_connection_status():
         return jsonify({
             'success': True,
             'connection': {
-                'fxcm_connected': fxcm_client.is_connected,
-                'fxcm_streaming': fxcm_client.is_streaming,
+                'fxcm_connected': fxcm_client.connected,
+                'fxcm_streaming': getattr(fxcm_client, 'streaming', False),
                 'server_type': FXCM_SERVER_TYPE,
-                'reconnect_attempts': fxcm_client.config.reconnect_attempts,
-                'heartbeat_interval': fxcm_client.config.heartbeat_interval
+                'reconnect_attempts': getattr(fxcm_client.config, 'reconnect_attempts', 0),
+                'heartbeat_interval': getattr(fxcm_client.config, 'heartbeat_interval', 30)
             },
             'rate_limits': {
-                'max_requests_per_minute': fxcm_client.config.max_requests_per_minute,
-                'max_orders_per_minute': fxcm_client.config.max_orders_per_minute
+                'max_requests_per_minute': getattr(fxcm_client.config, 'max_requests_per_minute', 300),
+                'max_orders_per_minute': getattr(fxcm_client.config, 'max_orders_per_minute', 50)
             },
             'timestamp': datetime.now().isoformat()
         }), 200
@@ -448,13 +455,13 @@ def reconnect():
         logger.info("Manual reconnection requested")
         
         # Disconnect and reconnect
+        global fxcm_client
         fxcm_client.disconnect()
         
         # Reinitialize
-        global fxcm_client
-        fxcm_client = create_fxcm_client(FXCM_ACCESS_TOKEN, FXCM_SERVER_TYPE)
+        fxcm_client = create_fxcm_client()
         
-        if fxcm_client.is_connected:
+        if fxcm_client.connected:
             return jsonify({
                 'success': True,
                 'message': 'Reconnection successful',
@@ -506,9 +513,11 @@ if __name__ == '__main__':
     logger.info(f"FXCM Server Type: {FXCM_SERVER_TYPE}")
     logger.info(f"Debug Mode: {debug}")
     
-    if fxcm_client.is_connected:
-        logger.info("✅ FXCM client connected successfully")
-        app.run(host='0.0.0.0', port=port, debug=debug)
+    # Start the service regardless of FXCM connection status
+    logger.info("🚀 Starting FXCM service...")
+    if fxcm_client.connected:
+        logger.info("✅ FXCM client is connected")
     else:
-        logger.error("❌ Failed to connect to FXCM - exiting")
-        sys.exit(1)
+        logger.warning("⚠️ FXCM client not connected - will retry on demand")
+    
+    app.run(host='0.0.0.0', port=port, debug=debug)

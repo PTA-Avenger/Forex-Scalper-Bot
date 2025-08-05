@@ -18,7 +18,7 @@ from decimal import Decimal
 
 import pandas as pd
 import numpy as np
-import fxcmpy
+# import fxcmpy  # Using REST API instead
 import requests
 from websocket import WebSocketApp
 import redis

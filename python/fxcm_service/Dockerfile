@@ -65,6 +65,7 @@ RUN groupadd -r fxcm && useradd -r -g fxcm fxcm
 # Copy only necessary files
 COPY app.py /app/
 COPY fxcm_client.py /app/
+COPY simple_fxcm_client.py /app/
 
 # Create directories for logs
 RUN mkdir -p /app/logs \
