@@ -40,7 +40,7 @@
     }
   },
   "broker": {
-    "type": "oanda",
+    "type": "mt5",
     "api_key": "${OANDA_API_KEY}",
     "account_id": "${OANDA_ACCOUNT_ID}",
     "environment": "practice",
@@ -52,6 +52,14 @@
     "rate_limit": {
       "requests_per_second": 100,
       "burst_limit": 200
+    },
+    "mt5": {
+      "login": "${MT5_LOGIN}",
+      "password": "${MT5_PASSWORD}",
+      "server": "${MT5_SERVER}",
+      "path": "${MT5_PATH}",
+      "bridge_url": "http://localhost:5000",
+      "magic_number": 12345
     }
   },
   "risk": {
