@@ -1,7 +1,41 @@
-MetaTrader5>=5.0.45
-pandas>=2.0.0
-numpy>=1.24.0
-flask>=2.3.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-schedule>=1.2.0
+# MT5 Bridge Service Dependencies
+# Core Flask and API dependencies
+Flask==3.0.0
+Flask-CORS==4.0.0
+gunicorn==21.2.0
+python-dotenv==1.0.0
+
+# MT5 Integration
+MetaTrader5==5.0.45
+pywin32==306  # Windows-specific
+
+# HTTP client for REST API
+requests==2.31.0
+
+# Data processing
+pandas==2.1.4
+numpy==1.24.3
+
+# Database and caching
+redis==5.0.1
+psycopg2-binary==2.9.9
+
+# Configuration and utilities
+pydantic==2.5.2
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Security (compatible version)
+cryptography==42.0.8
+
+# Development and testing
+pytest==7.4.3
+
+# Logging
+structlog==23.2.0
+
+# WebSocket support
+websocket-client==1.6.4
+
+# Time and scheduling
+schedule==1.2.0
