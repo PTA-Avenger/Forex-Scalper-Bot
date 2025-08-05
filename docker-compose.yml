@@ -105,6 +105,48 @@ services:
       - forex-network
     restart: unless-stopped
 
+  # FXCM Trading Service
+  fxcm-service:
+    build:
+      context: ./python/fxcm_service
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      - ENVIRONMENT=production
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=postgres
+      - FXCM_ACCESS_TOKEN=${FXCM_ACCESS_TOKEN}
+      - FXCM_SERVER_TYPE=${FXCM_SERVER_TYPE}
+      - WEBHOOK_URL=http://cpp-engine:8080/webhook/fxcm
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "5004:5003"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - forex-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
   # Signal Processor Service
   signal-processor:
     build:
