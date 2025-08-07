@@ -2,9 +2,10 @@
 """
 MetaTrader 5 Python Bridge Service
 
-This service provides a bridge between the C++ trading engine and MetaTrader 5
-using the MetaTrader5 Python library. It handles authentication, market data,
-and order execution through MT5.
+This service provides a bridge between the trading system and MetaTrader 5.
+It can work in two modes:
+1. Local MT5 integration using MetaTrader5 Python library
+2. Remote MT5 signal reception from Windows VM via HTTP
 """
 
 import json
@@ -104,6 +105,31 @@ class MT5Bridge:
                 return jsonify({'error': 'Failed to get symbols'}), 500
             
             return jsonify([symbol._asdict() for symbol in symbols])
+        
+        @self.app.route('/windows-vm-signals', methods=['POST'])
+        def handle_windows_vm_signal():
+            """Handle signals from MT5 running on Windows VM"""
+            try:
+                signal_data = request.get_json()
+                
+                if not signal_data:
+                    return jsonify({'error': 'No signal data provided'}), 400
+                
+                logger.info(f"Received Windows VM signal for {signal_data.get('symbol')}")
+                
+                # Forward signal to price predictor service
+                response = self.forward_signal_to_predictor(signal_data)
+                
+                return jsonify({
+                    'status': 'success',
+                    'signal_forwarded': True,
+                    'predictor_response': response,
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }), 200
+                
+            except Exception as e:
+                logger.error(f"Error handling Windows VM signal: {e}")
+                return jsonify({'error': str(e)}), 500
         
         @self.app.route('/symbol_info/<symbol>', methods=['GET'])
         def get_symbol_info(symbol):
@@ -444,6 +470,28 @@ class MT5Bridge:
         logger.info(f"Starting MT5 Bridge on {host}:{port}")
         self.app.run(host=host, port=port, debug=False, threaded=True)
     
+    def forward_signal_to_predictor(self, signal_data):
+        """Forward signal to price predictor service"""
+        try:
+            import requests
+            
+            # Get price predictor URL from environment or use default
+            predictor_url = os.environ.get('PRICE_PREDICTOR_URL', 'http://price-predictor:5001')
+            endpoint = f"{predictor_url}/mt5-signals"
+            
+            response = requests.post(endpoint, json=signal_data, timeout=30)
+            
+            if response.status_code == 200:
+                logger.info(f"Successfully forwarded signal to price predictor")
+                return response.json()
+            else:
+                logger.error(f"Failed to forward signal: {response.status_code}")
+                return {'error': f'Price predictor returned {response.status_code}'}
+                
+        except Exception as e:
+            logger.error(f"Error forwarding signal to predictor: {e}")
+            return {'error': str(e)}
+
     def shutdown(self):
         """Shutdown the bridge"""
         logger.info("Shutting down MT5 Bridge")
