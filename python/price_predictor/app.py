@@ -524,6 +524,116 @@ def test_model():
             'timestamp': datetime.now().isoformat()
         }), 500
 
+@app.route('/mt5-signals', methods=['POST'])
+def handle_mt5_signal():
+    """Handle incoming signals from MT5 Windows VM"""
+    try:
+        signal_data = request.get_json()
+        
+        if not signal_data:
+            return jsonify({'error': 'No signal data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['symbol', 'bid', 'ask', 'timestamp']
+        for field in required_fields:
+            if field not in signal_data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        logger.info(f"Received MT5 signal for {signal_data.get('symbol')}")
+        
+        # Store signal in Redis for processing
+        signal_key = f"mt5_signal:{signal_data['symbol']}:{int(datetime.now().timestamp())}"
+        redis_client.setex(signal_key, 3600, json.dumps(signal_data))  # Store for 1 hour
+        
+        # Process signal with AI
+        ai_decision = process_mt5_signal_with_ai(signal_data)
+        
+        # Store AI decision in InfluxDB (if available)
+        store_signal_in_influxdb(signal_data, ai_decision)
+        
+        response = {
+            'status': 'success',
+            'signal_received': True,
+            'ai_decision': ai_decision,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"Error handling MT5 signal: {e}")
+        return jsonify({'error': str(e)}), 500
+
+def process_mt5_signal_with_ai(signal_data):
+    """Process MT5 signal data with Gemini AI"""
+    try:
+        # Create DataFrame from signal data
+        signal_df = pd.DataFrame([{
+            'open': signal_data.get('ohlc', {}).get('open', signal_data.get('bid')),
+            'high': signal_data.get('ohlc', {}).get('high', signal_data.get('ask')),
+            'low': signal_data.get('ohlc', {}).get('low', signal_data.get('bid')),
+            'close': signal_data.get('ohlc', {}).get('close', signal_data.get('ask')),
+            'volume': signal_data.get('volume', 1000)
+        }])
+        
+        # Calculate technical indicators if not provided
+        indicators = signal_data.get('indicators', {})
+        if not indicators:
+            indicators = gemini_predictor.calculate_technical_indicators(signal_df)
+        
+        # Create MarketData object
+        market_data = MarketData(
+            symbol=signal_data['symbol'],
+            timeframe="M5",  # Default to 5-minute timeframe
+            ohlcv=signal_df,
+            indicators=indicators,
+            sentiment_score=0.0,  # Default neutral sentiment
+            news_summary="MT5 signal analysis"
+        )
+        
+        # Generate prediction
+        prediction = executor.submit(
+            run_async,
+            gemini_predictor.predict_price_movement(market_data)
+        ).result(timeout=30)
+        
+        return {
+            'action': prediction.direction,
+            'confidence': prediction.confidence,
+            'reasoning': prediction.reasoning,
+            'risk_level': 'MEDIUM',  # Default risk level
+            'timestamp': datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing MT5 signal with AI: {e}")
+        return {
+            'action': 'HOLD',
+            'confidence': 0.0,
+            'reasoning': f'AI processing error: {str(e)}',
+            'risk_level': 'HIGH',
+            'timestamp': datetime.now().isoformat()
+        }
+
+def store_signal_in_influxdb(signal_data, ai_decision):
+    """Store signal and AI decision in InfluxDB"""
+    try:
+        # This would integrate with your existing InfluxDB setup
+        # For now, we'll store in Redis as a fallback
+        influx_data = {
+            'signal': signal_data,
+            'ai_decision': ai_decision,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        influx_key = f"influx_data:{signal_data['symbol']}:{int(datetime.now().timestamp())}"
+        redis_client.setex(influx_key, 86400, json.dumps(influx_data))  # Store for 24 hours
+        
+        logger.info(f"Stored signal data for {signal_data['symbol']} in Redis (InfluxDB fallback)")
+        
+    except Exception as e:
+        logger.error(f"Error storing signal in InfluxDB: {e}")
+
 @app.route('/cache-stats', methods=['GET'])
 def get_cache_stats():
     """Get cache statistics"""
@@ -531,6 +641,7 @@ def get_cache_stats():
         # Get cache keys
         prediction_keys = redis_client.keys('prediction:*')
         sentiment_keys = redis_client.keys('sentiment:*')
+        mt5_signal_keys = redis_client.keys('mt5_signal:*')
         
         stats = {
             'prediction_cache': {
@@ -540,6 +651,10 @@ def get_cache_stats():
             'sentiment_cache': {
                 'entries': len(sentiment_keys),
                 'keys': sentiment_keys[:10]  # Show first 10
+            },
+            'mt5_signals': {
+                'entries': len(mt5_signal_keys),
+                'keys': mt5_signal_keys[:10]  # Show first 10
             },
             'redis_info': {
                 'connected': True,

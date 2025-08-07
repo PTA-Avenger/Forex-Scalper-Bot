@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//|                                              MT5_SignalSender.mq5 |
-//|                        Copyright 2024, MetaQuotes Software Corp. |
+//|                                        WindowsVM_SignalSender.mq5 |
+//|                        Copyright 2024, Your Trading Bot System   |
 //|                                             https://www.mql5.com |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024, Trading Bot System"
@@ -8,19 +8,16 @@
 #property version   "1.00"
 #property strict
 
-#include <Trade\Trade.mqh>
-#include <Json\JAson.mqh>
-
 //--- Input parameters
-input string   LinuxBotURL = "http://192.168.1.100:8080";  // Linux bot IP and port
-input string   APIEndpoint = "/api/signals";                // Signal endpoint
-input int      SignalInterval = 60;                         // Signal interval in seconds
-input double   MinPriceChange = 0.0010;                    // Minimum price change to trigger signal
-input bool     EnableSignals = true;                        // Enable/disable signal sending
+input string   LinuxBotIP = "192.168.1.100";              // Linux bot IP address
+input int      BridgePort = 5005;                          // MT5 Bridge port
+input string   APIEndpoint = "/windows-vm-signals";        // Signal endpoint
+input int      SignalInterval = 30;                        // Signal interval in seconds
+input double   MinPriceChange = 0.0005;                    // Minimum price change to trigger signal
+input bool     EnableSignals = true;                       // Enable/disable signal sending
 input string   TradingSymbols = "EURUSD,GBPUSD,USDJPY";    // Symbols to monitor
 
 //--- Global variables
-CTrade trade;
 datetime lastSignalTime[];
 double lastPrice[];
 string symbols[];
@@ -31,7 +28,7 @@ int symbolCount = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-    Print("MT5 Signal Sender initialized");
+    Print("Windows VM Signal Sender initialized");
     
     // Parse trading symbols
     ParseSymbols();
@@ -48,6 +45,8 @@ int OnInit()
     }
     
     Print("Monitoring ", symbolCount, " symbols for signals");
+    Print("Sending signals to: http://", LinuxBotIP, ":", BridgePort, APIEndpoint);
+    
     return(INIT_SUCCEEDED);
 }
 
@@ -56,7 +55,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-    Print("MT5 Signal Sender stopped. Reason: ", reason);
+    Print("Windows VM Signal Sender stopped. Reason: ", reason);
 }
 
 //+------------------------------------------------------------------+
@@ -125,12 +124,8 @@ void CheckAndSendSignal(string symbol, int index)
     
     if(priceChange >= MinPriceChange)
     {
-        // Gather market data
-        MarketData marketData;
-        GatherMarketData(symbol, marketData);
-        
         // Create and send signal
-        SendSignalToLinuxBot(symbol, marketData);
+        SendSignalToLinuxBot(symbol);
         
         // Update tracking variables
         lastSignalTime[index] = TimeCurrent();
@@ -139,119 +134,12 @@ void CheckAndSendSignal(string symbol, int index)
 }
 
 //+------------------------------------------------------------------+
-//| Market data structure                                            |
-//+------------------------------------------------------------------+
-struct MarketData
-{
-    string symbol;
-    datetime timestamp;
-    double bid;
-    double ask;
-    double spread;
-    long volume;
-    double high;
-    double low;
-    double open;
-    double close;
-    double rsi;
-    double ma_fast;
-    double ma_slow;
-    double bollinger_upper;
-    double bollinger_lower;
-    double atr;
-};
-
-//+------------------------------------------------------------------+
-//| Gather comprehensive market data                                 |
-//+------------------------------------------------------------------+
-void GatherMarketData(string symbol, MarketData &data)
-{
-    data.symbol = symbol;
-    data.timestamp = TimeCurrent();
-    data.bid = SymbolInfoDouble(symbol, SYMBOL_BID);
-    data.ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
-    data.spread = data.ask - data.bid;
-    data.volume = SymbolInfoInteger(symbol, SYMBOL_VOLUME);
-    
-    // Get current bar data
-    MqlRates rates[];
-    if(CopyRates(symbol, PERIOD_M1, 0, 1, rates) > 0)
-    {
-        data.high = rates[0].high;
-        data.low = rates[0].low;
-        data.open = rates[0].open;
-        data.close = rates[0].close;
-    }
-    
-    // Calculate technical indicators
-    CalculateIndicators(symbol, data);
-}
-
-//+------------------------------------------------------------------+
-//| Calculate technical indicators                                   |
-//+------------------------------------------------------------------+
-void CalculateIndicators(string symbol, MarketData &data)
-{
-    // RSI (14 period)
-    int rsiHandle = iRSI(symbol, PERIOD_M5, 14, PRICE_CLOSE);
-    if(rsiHandle != INVALID_HANDLE)
-    {
-        double rsiBuffer[];
-        if(CopyBuffer(rsiHandle, 0, 0, 1, rsiBuffer) > 0)
-            data.rsi = rsiBuffer[0];
-        IndicatorRelease(rsiHandle);
-    }
-    
-    // Moving Averages
-    int maFastHandle = iMA(symbol, PERIOD_M5, 10, 0, MODE_SMA, PRICE_CLOSE);
-    int maSlowHandle = iMA(symbol, PERIOD_M5, 20, 0, MODE_SMA, PRICE_CLOSE);
-    
-    if(maFastHandle != INVALID_HANDLE)
-    {
-        double maFastBuffer[];
-        if(CopyBuffer(maFastHandle, 0, 0, 1, maFastBuffer) > 0)
-            data.ma_fast = maFastBuffer[0];
-        IndicatorRelease(maFastHandle);
-    }
-    
-    if(maSlowHandle != INVALID_HANDLE)
-    {
-        double maSlowBuffer[];
-        if(CopyBuffer(maSlowHandle, 0, 0, 1, maSlowBuffer) > 0)
-            data.ma_slow = maSlowBuffer[0];
-        IndicatorRelease(maSlowHandle);
-    }
-    
-    // Bollinger Bands
-    int bbHandle = iBands(symbol, PERIOD_M5, 20, 0, 2.0, PRICE_CLOSE);
-    if(bbHandle != INVALID_HANDLE)
-    {
-        double upperBuffer[], lowerBuffer[];
-        if(CopyBuffer(bbHandle, 1, 0, 1, upperBuffer) > 0)
-            data.bollinger_upper = upperBuffer[0];
-        if(CopyBuffer(bbHandle, 2, 0, 1, lowerBuffer) > 0)
-            data.bollinger_lower = lowerBuffer[0];
-        IndicatorRelease(bbHandle);
-    }
-    
-    // ATR (14 period)
-    int atrHandle = iATR(symbol, PERIOD_M5, 14);
-    if(atrHandle != INVALID_HANDLE)
-    {
-        double atrBuffer[];
-        if(CopyBuffer(atrHandle, 0, 0, 1, atrBuffer) > 0)
-            data.atr = atrBuffer[0];
-        IndicatorRelease(atrHandle);
-    }
-}
-
-//+------------------------------------------------------------------+
 //| Send signal to Linux bot via HTTP request                       |
 //+------------------------------------------------------------------+
-void SendSignalToLinuxBot(string symbol, MarketData &data)
+void SendSignalToLinuxBot(string symbol)
 {
-    string url = LinuxBotURL + APIEndpoint;
-    string jsonPayload = CreateJSONPayload(data);
+    string url = "http://" + LinuxBotIP + ":" + IntegerToString(BridgePort) + APIEndpoint;
+    string jsonPayload = CreateJSONPayload(symbol);
     
     char post[], result[];
     string headers;
@@ -269,47 +157,134 @@ void SendSignalToLinuxBot(string symbol, MarketData &data)
     if(res == 200)
     {
         Print("Signal sent successfully for ", symbol);
-        Print("Response: ", CharArrayToString(result));
+        string responseStr = CharArrayToString(result);
+        Print("Response: ", responseStr);
     }
     else
     {
         Print("Failed to send signal for ", symbol, ". HTTP code: ", res);
-        Print("Error: ", CharArrayToString(result));
+        if(ArraySize(result) > 0)
+        {
+            Print("Error: ", CharArrayToString(result));
+        }
     }
 }
 
 //+------------------------------------------------------------------+
 //| Create JSON payload from market data                            |
 //+------------------------------------------------------------------+
-string CreateJSONPayload(MarketData &data)
+string CreateJSONPayload(string symbol)
 {
+    // Get current market data
+    double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+    double spread = ask - bid;
+    long volume = SymbolInfoInteger(symbol, SYMBOL_VOLUME);
+    
+    // Get current bar data
+    MqlRates rates[];
+    double open_price = bid, high = bid, low = bid, close_price = bid;
+    
+    if(CopyRates(symbol, PERIOD_M1, 0, 1, rates) > 0)
+    {
+        open_price = rates[0].open;
+        high = rates[0].high;
+        low = rates[0].low;
+        close_price = rates[0].close;
+    }
+    
+    // Calculate basic technical indicators
+    double rsi = CalculateRSI(symbol, 14);
+    double ma_fast = CalculateMA(symbol, 10);
+    double ma_slow = CalculateMA(symbol, 20);
+    double atr = CalculateATR(symbol, 14);
+    
+    // Create JSON payload
     string json = "{";
     json += "\"signal_type\":\"market_data\",";
-    json += "\"symbol\":\"" + data.symbol + "\",";
-    json += "\"timestamp\":\"" + TimeToString(data.timestamp, TIME_DATE|TIME_SECONDS) + "\",";
-    json += "\"bid\":" + DoubleToString(data.bid, 5) + ",";
-    json += "\"ask\":" + DoubleToString(data.ask, 5) + ",";
-    json += "\"spread\":" + DoubleToString(data.spread, 5) + ",";
-    json += "\"volume\":" + IntegerToString(data.volume) + ",";
+    json += "\"symbol\":\"" + symbol + "\",";
+    json += "\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\",";
+    json += "\"bid\":" + DoubleToString(bid, 5) + ",";
+    json += "\"ask\":" + DoubleToString(ask, 5) + ",";
+    json += "\"spread\":" + DoubleToString(spread, 5) + ",";
+    json += "\"volume\":" + IntegerToString(volume) + ",";
     json += "\"ohlc\":{";
-    json += "\"open\":" + DoubleToString(data.open, 5) + ",";
-    json += "\"high\":" + DoubleToString(data.high, 5) + ",";
-    json += "\"low\":" + DoubleToString(data.low, 5) + ",";
-    json += "\"close\":" + DoubleToString(data.close, 5);
+    json += "\"open\":" + DoubleToString(open_price, 5) + ",";
+    json += "\"high\":" + DoubleToString(high, 5) + ",";
+    json += "\"low\":" + DoubleToString(low, 5) + ",";
+    json += "\"close\":" + DoubleToString(close_price, 5);
     json += "},";
     json += "\"indicators\":{";
-    json += "\"rsi\":" + DoubleToString(data.rsi, 2) + ",";
-    json += "\"ma_fast\":" + DoubleToString(data.ma_fast, 5) + ",";
-    json += "\"ma_slow\":" + DoubleToString(data.ma_slow, 5) + ",";
-    json += "\"bollinger_upper\":" + DoubleToString(data.bollinger_upper, 5) + ",";
-    json += "\"bollinger_lower\":" + DoubleToString(data.bollinger_lower, 5) + ",";
-    json += "\"atr\":" + DoubleToString(data.atr, 5);
+    json += "\"rsi\":" + DoubleToString(rsi, 2) + ",";
+    json += "\"ma_fast\":" + DoubleToString(ma_fast, 5) + ",";
+    json += "\"ma_slow\":" + DoubleToString(ma_slow, 5) + ",";
+    json += "\"atr\":" + DoubleToString(atr, 5);
     json += "},";
     json += "\"source\":\"MT5_Windows_VM\",";
     json += "\"version\":\"1.0\"";
     json += "}";
     
     return json;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate RSI indicator                                          |
+//+------------------------------------------------------------------+
+double CalculateRSI(string symbol, int period)
+{
+    int rsiHandle = iRSI(symbol, PERIOD_M5, period, PRICE_CLOSE);
+    if(rsiHandle == INVALID_HANDLE)
+        return 50.0; // Default neutral value
+    
+    double rsiBuffer[];
+    if(CopyBuffer(rsiHandle, 0, 0, 1, rsiBuffer) > 0)
+    {
+        IndicatorRelease(rsiHandle);
+        return rsiBuffer[0];
+    }
+    
+    IndicatorRelease(rsiHandle);
+    return 50.0;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate Moving Average                                         |
+//+------------------------------------------------------------------+
+double CalculateMA(string symbol, int period)
+{
+    int maHandle = iMA(symbol, PERIOD_M5, period, 0, MODE_SMA, PRICE_CLOSE);
+    if(maHandle == INVALID_HANDLE)
+        return SymbolInfoDouble(symbol, SYMBOL_BID); // Default to current price
+    
+    double maBuffer[];
+    if(CopyBuffer(maHandle, 0, 0, 1, maBuffer) > 0)
+    {
+        IndicatorRelease(maHandle);
+        return maBuffer[0];
+    }
+    
+    IndicatorRelease(maHandle);
+    return SymbolInfoDouble(symbol, SYMBOL_BID);
+}
+
+//+------------------------------------------------------------------+
+//| Calculate ATR indicator                                          |
+//+------------------------------------------------------------------+
+double CalculateATR(string symbol, int period)
+{
+    int atrHandle = iATR(symbol, PERIOD_M5, period);
+    if(atrHandle == INVALID_HANDLE)
+        return 0.0001; // Default small ATR value
+    
+    double atrBuffer[];
+    if(CopyBuffer(atrHandle, 0, 0, 1, atrBuffer) > 0)
+    {
+        IndicatorRelease(atrHandle);
+        return atrBuffer[0];
+    }
+    
+    IndicatorRelease(atrHandle);
+    return 0.0001;
 }
 
 //+------------------------------------------------------------------+
@@ -352,7 +327,7 @@ void SendTradeExecutionUpdate()
             json += "\"source\":\"MT5_Windows_VM\"";
             json += "}";
             
-            string url = LinuxBotURL + "/api/trade-execution";
+            string url = "http://" + LinuxBotIP + ":" + IntegerToString(BridgePort) + "/trade-execution";
             SendHTTPRequest(url, json);
         }
     }
