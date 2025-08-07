@@ -618,8 +618,70 @@ def process_mt5_signal_with_ai(signal_data):
 def store_signal_in_influxdb(signal_data, ai_decision):
     """Store signal and AI decision in InfluxDB"""
     try:
-        # This would integrate with your existing InfluxDB setup
-        # For now, we'll store in Redis as a fallback
+        from influxdb_client import InfluxDBClient, Point
+        from influxdb_client.client.write_api import SYNCHRONOUS
+        
+        # InfluxDB connection settings
+        influx_url = os.getenv('INFLUXDB_URL', 'http://influxdb:8086')
+        influx_token = os.getenv('INFLUXDB_TOKEN', 'forex-super-secret-token-12345')
+        influx_org = os.getenv('INFLUXDB_ORG', 'forex-trading-org')
+        influx_bucket = os.getenv('INFLUXDB_BUCKET', 'market-data')
+        
+        # Create InfluxDB client
+        client = InfluxDBClient(url=influx_url, token=influx_token, org=influx_org)
+        write_api = client.write_api(write_options=SYNCHRONOUS)
+        
+        # Create market signal point
+        signal_point = (
+            Point("market_signals")
+            .tag("symbol", signal_data.get('symbol', 'UNKNOWN'))
+            .tag("source", signal_data.get('source', 'MT5'))
+            .field("bid", float(signal_data.get('bid', 0)))
+            .field("ask", float(signal_data.get('ask', 0)))
+            .field("spread", float(signal_data.get('spread', 0)))
+            .field("volume", int(signal_data.get('volume', 0)))
+            .time(datetime.now())
+        )
+        
+        # Add OHLC data if available
+        if 'ohlc' in signal_data:
+            ohlc = signal_data['ohlc']
+            signal_point = (signal_point
+                .field("open", float(ohlc.get('open', 0)))
+                .field("high", float(ohlc.get('high', 0)))
+                .field("low", float(ohlc.get('low', 0)))
+                .field("close", float(ohlc.get('close', 0)))
+            )
+        
+        # Add technical indicators if available
+        if 'indicators' in signal_data:
+            indicators = signal_data['indicators']
+            for key, value in indicators.items():
+                if isinstance(value, (int, float)) and value != 0:
+                    signal_point = signal_point.field(f"indicator_{key}", float(value))
+        
+        # Create AI decision point
+        ai_point = (
+            Point("ai_decisions")
+            .tag("symbol", signal_data.get('symbol', 'UNKNOWN'))
+            .tag("action", ai_decision.get('action', 'HOLD'))
+            .tag("risk_level", ai_decision.get('risk_level', 'UNKNOWN'))
+            .field("confidence", float(ai_decision.get('confidence', 0.0)))
+            .field("reasoning", ai_decision.get('reasoning', ''))
+            .time(datetime.now())
+        )
+        
+        # Write points to InfluxDB
+        write_api.write(bucket=influx_bucket, org=influx_org, record=[signal_point, ai_point])
+        
+        logger.info(f"Stored signal and AI decision for {signal_data['symbol']} in InfluxDB")
+        
+        # Close client
+        client.close()
+        
+    except ImportError:
+        logger.warning("InfluxDB client not installed, storing in Redis as fallback")
+        # Fallback to Redis storage
         influx_data = {
             'signal': signal_data,
             'ai_decision': ai_decision,
@@ -627,12 +689,23 @@ def store_signal_in_influxdb(signal_data, ai_decision):
         }
         
         influx_key = f"influx_data:{signal_data['symbol']}:{int(datetime.now().timestamp())}"
-        redis_client.setex(influx_key, 86400, json.dumps(influx_data))  # Store for 24 hours
-        
-        logger.info(f"Stored signal data for {signal_data['symbol']} in Redis (InfluxDB fallback)")
+        redis_client.setex(influx_key, 86400, json.dumps(influx_data))
         
     except Exception as e:
         logger.error(f"Error storing signal in InfluxDB: {e}")
+        # Fallback to Redis storage
+        try:
+            influx_data = {
+                'signal': signal_data,
+                'ai_decision': ai_decision,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            influx_key = f"influx_data:{signal_data['symbol']}:{int(datetime.now().timestamp())}"
+            redis_client.setex(influx_key, 86400, json.dumps(influx_data))
+            logger.info(f"Stored data in Redis as InfluxDB fallback")
+        except Exception as redis_error:
+            logger.error(f"Failed to store in Redis fallback: {redis_error}")
 
 @app.route('/cache-stats', methods=['GET'])
 def get_cache_stats():
