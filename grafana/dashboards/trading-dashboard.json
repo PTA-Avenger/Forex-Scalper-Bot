@@ -1,0 +1,215 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Trading Bot Dashboard",
+    "tags": ["trading", "forex", "ai"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Signals Received (Last 24h)",
+        "type": "stat",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"market_signals\")\n  |> count()",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "displayMode": "list",
+              "orientation": "horizontal"
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "AI Decisions Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"ai_decisions\")\n  |> group(columns: [\"action\"])\n  |> count()",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Average AI Confidence",
+        "type": "gauge",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"ai_decisions\")\n  |> filter(fn: (r) => r[\"_field\"] == \"confidence\")\n  |> mean()",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 0.5
+                },
+                {
+                  "color": "green",
+                  "value": 0.7
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 4,
+        "title": "System Health",
+        "type": "stat",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"market_signals\")\n  |> last()",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        }
+      },
+      {
+        "id": 5,
+        "title": "Market Signals Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -6h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"market_signals\")\n  |> filter(fn: (r) => r[\"_field\"] == \"bid\" or r[\"_field\"] == \"ask\")\n  |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 6,
+        "title": "Technical Indicators",
+        "type": "timeseries",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -6h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"market_signals\")\n  |> filter(fn: (r) => r[\"_field\"] == \"indicator_rsi\" or r[\"_field\"] == \"indicator_ma_fast\" or r[\"_field\"] == \"indicator_ma_slow\")\n  |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 7,
+        "title": "AI Decision Timeline",
+        "type": "timeseries",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -6h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"ai_decisions\")\n  |> filter(fn: (r) => r[\"_field\"] == \"confidence\")\n  |> aggregateWindow(every: 10m, fn: mean, createEmpty: false)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 17
+        }
+      },
+      {
+        "id": 8,
+        "title": "Trade Executions",
+        "type": "table",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"trade_executions\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> limit(n: 20)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 25
+        }
+      },
+      {
+        "id": 9,
+        "title": "Risk Metrics",
+        "type": "stat",
+        "targets": [
+          {
+            "query": "from(bucket: \"trading-signals\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"ai_decisions\")\n  |> filter(fn: (r) => r[\"risk_level\"] == \"HIGH\")\n  |> count()",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 25
+        }
+      }
+    ],
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "",
+    "title": "Trading Bot Dashboard",
+    "uid": "trading-bot-main",
+    "version": 1,
+    "weekStart": ""
+  }
+}

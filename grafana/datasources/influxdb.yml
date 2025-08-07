@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB-Trading
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: trading-org
+      defaultBucket: trading-signals
+      tlsSkipVerify: true
+    secureJsonData:
+      token: trading-super-secret-token-12345
+    isDefault: true
+    editable: true

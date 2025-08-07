@@ -1,386 +1,297 @@
-# Forex Scalping Bot - High-Performance AI-Driven Trading System
+# Trading Bot Hybrid Architecture
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![C++](https://img.shields.io/badge/C++-20-blue.svg)](https://isocpp.org/)
-[![Python](https://img.shields.io/badge/Python-3.11+-green.svg)](https://www.python.org/)
-[![React](https://img.shields.io/badge/React-18+-61DAFB.svg)](https://reactjs.org/)
-[![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED.svg)](https://www.docker.com/)
+A sophisticated trading system that combines MT5 on Windows VM for market data collection with a Linux-based AI bot for intelligent decision making, all monitored through comprehensive analytics.
 
-## Overview
+## 🏗️ Architecture Overview
 
-A comprehensive, high-performance Forex scalping bot with advanced AI integration, real-time capabilities, and professional-grade infrastructure. Built with a modular microservices architecture supporting multiple broker APIs, sophisticated trading strategies, and intelligent risk management.
-
-## 🚀 Key Features
-
-### Core Trading Engine (C++)
-- **Sub-millisecond latency** order execution
-- **Multi-broker support** (OANDA, MetaTrader)
-- **Real-time market data** processing (1000+ ticks/second)
-- **Advanced scalping strategies** with AI integration
-- **Sophisticated risk management** with dynamic position sizing
-- **Comprehensive backtesting** engine with realistic simulation
-
-### AI-Powered Intelligence (Gemini API)
-- **Google Gemini 1.5 Pro** for intelligent market analysis
-- **Advanced pattern recognition** without local GPU requirements
-- **Real-time sentiment analysis** from news and social media
-- **Natural language reasoning** for trading decisions
-- **Cloud-based AI** with automatic scaling and updates
-
-### Professional Dashboard (React)
-- **Real-time visualization** with TradingView integration
-- **Live P&L tracking** with drill-down analytics
-- **Interactive strategy configuration** and parameter tuning
-- **Comprehensive risk monitoring** and alerts
-- **Performance analytics** with advanced metrics
-
-### Production Infrastructure
-- **Docker containerization** with orchestrated deployment
-- **Horizontal scaling** for multiple currency pairs
-- **Comprehensive monitoring** with Prometheus/Grafana
-- **Automated backup** and disaster recovery
-- **SSL/TLS security** with rate limiting
-
-## 📊 Architecture Overview
-
-```mermaid
-graph TB
-    subgraph "External APIs"
-        FXCM[FXCM API]
-        GEMINI[Google Gemini API]
-        TV[TradingView Webhooks]
-        NEWS[News APIs]
-        SOCIAL[Social Media APIs]
-    end
-    
-    subgraph "Core Engine (C++)"
-        ENGINE[Trading Engine]
-        MARKET[Market Data Handler]
-        STRATEGY[Strategy Manager]
-        RISK[Risk Manager]
-        BACKTEST[Backtesting Engine]
-    end
-    
-    subgraph "Trading Services (Python)"
-        FXCM_SVC[FXCM Service]
-        GEMINI_PRED[Gemini Predictor]
-        SENTIMENT[Sentiment Analyzer]
-        SIGNAL[Signal Processor]
-    end
-    
-    subgraph "Frontend (React)"
-        DASHBOARD[Trading Dashboard]
-        CHARTS[Real-time Charts]
-        ANALYTICS[Performance Analytics]
-    end
-    
-    subgraph "Data Layer"
-        REDIS[(Redis Cache)]
-        POSTGRES[(PostgreSQL)]
-        INFLUX[(InfluxDB)]
-    end
-    
-    FXCM --> FXCM_SVC
-    GEMINI --> GEMINI_PRED
-    TV --> ENGINE
-    NEWS --> SENTIMENT
-    SOCIAL --> SENTIMENT
-    
-    FXCM_SVC --> ENGINE
-    ENGINE --> MARKET
-    ENGINE --> STRATEGY
-    ENGINE --> RISK
-    ENGINE --> BACKTEST
-    
-    STRATEGY --> GEMINI_PRED
-    GEMINI_PRED --> SIGNAL
-    SENTIMENT --> SIGNAL
-    
-    ENGINE --> DASHBOARD
-    DASHBOARD --> CHARTS
-    DASHBOARD --> ANALYTICS
-    
-    ENGINE --> REDIS
-    ENGINE --> POSTGRES
-    MARKET --> INFLUX
+```
+┌─────────────────┐    HTTP/JSON    ┌─────────────────┐    InfluxDB    ┌─────────────────┐
+│   MT5 Windows   │ ──────────────> │   Linux Bot     │ ────────────> │   InfluxDB      │
+│      VM         │    Signals      │   (AI Engine)   │   Analytics   │   (Database)    │
+└─────────────────┘                 └─────────────────┘               └─────────────────┘
+        │                                    │                                │
+        │                                    │                                │
+        v                                    v                                v
+┌─────────────────┐                 ┌─────────────────┐               ┌─────────────────┐
+│   Broker API    │                 │   Gemini AI     │               │    Grafana      │
+│   (Market Data) │                 │   (Decisions)   │               │  (Dashboard)    │
+└─────────────────┘                 └─────────────────┘               └─────────────────┘
 ```
 
-## 🛠️ Technology Stack
+## 🔧 Components
 
-### Backend
-- **C++20** - Core trading engine for maximum performance
-- **Boost Libraries** - Networking, threading, and utilities
-- **libcurl** - HTTP client for broker APIs
-- **WebSocket++** - Real-time data streaming
-- **spdlog** - High-performance logging
-- **nlohmann/json** - JSON processing
+### 1. **MT5 Windows VM**
+- **Purpose**: Market data collection and signal generation
+- **File**: `MT5_SignalSender.mq5`
+- **Features**:
+  - Real-time market data monitoring
+  - Technical indicator calculations (RSI, MA, Bollinger Bands, ATR)
+  - HTTP signal transmission to Linux bot
+  - Trade execution reporting
 
-### AI Services
-- **Python 3.11+** - Lightweight AI microservices
-- **Google Gemini API** - Advanced language model for market analysis
-- **Technical Analysis** - Comprehensive indicator calculations
-- **Sentiment Processing** - Multi-source sentiment aggregation
-- **Flask** - RESTful API services
+### 2. **Linux Trading Bot**
+- **Purpose**: AI-powered decision making and execution
+- **File**: `linux_trading_bot.py`
+- **Features**:
+  - RESTful API for signal reception
+  - Gemini AI integration for trade analysis
+  - Risk management and position sizing
+  - Comprehensive logging and audit trails
 
-### Frontend
-- **React 18** - Modern UI framework
-- **Material-UI** - Professional component library
-- **TradingView Charting** - Advanced financial charts
-- **Redux Toolkit** - State management
-- **WebSocket** - Real-time data streaming
+### 3. **InfluxDB Database**
+- **Purpose**: Time-series data storage and analytics
+- **Features**:
+  - Market signal storage
+  - AI decision tracking
+  - Trade execution logging
+  - Performance analytics
 
-### Infrastructure
-- **Docker & Docker Compose** - Containerization
-- **NGINX** - Load balancing and reverse proxy
-- **Redis** - High-speed caching and pub/sub
-- **PostgreSQL** - Relational data storage
-- **InfluxDB** - Time-series market data
-- **Prometheus/Grafana** - Monitoring and visualization
-
-## 📈 Trading Strategies
-
-### 1. Momentum EMA Crossover
-- **Fast EMA (12)** vs **Slow EMA (26)** crossover signals
-- **MACD confirmation** filter for trend validation
-- **Volume analysis** for signal strength
-- **Dynamic stop-loss** based on ATR
-
-### 2. Mean Reversion
-- **RSI overbought/oversold** levels (30/70)
-- **Bollinger Band** squeeze and expansion
-- **Price deviation** from moving averages
-- **Statistical arbitrage** opportunities
-
-### 3. ATR Breakout
-- **Average True Range** volatility measurement
-- **Price extreme** identification and breakout detection
-- **Momentum confirmation** with volume
-- **Trailing stop** implementation
-
-## 🛡️ Risk Management
-
-### Position Sizing
-- **Kelly Criterion** optimal position sizing
-- **Maximum position limits** per symbol
-- **Portfolio-level exposure** management
-- **Correlation-based** risk adjustment
-
-### Risk Controls
-- **Daily drawdown protection** (configurable limit)
-- **Real-time risk monitoring** with circuit breakers
-- **Dynamic stop-loss** adjustment based on volatility
-- **Correlation limits** across currency pairs
-
-### Performance Metrics
-- **Sharpe Ratio** and **Sortino Ratio**
-- **Maximum Drawdown** and recovery time
-- **Win Rate** and **Profit Factor**
-- **Risk-adjusted returns** analysis
+### 4. **Grafana Dashboard**
+- **Purpose**: Real-time monitoring and visualization
+- **Features**:
+  - Live trading metrics
+  - AI confidence tracking
+  - Risk assessment visualization
+  - Historical performance analysis
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Linux/macOS** (Ubuntu 22.04+ recommended)
-- **Docker** and **Docker Compose**
-- **Git** version control
-- **4GB+ RAM** and **2+ CPU cores** (reduced requirements)
-- **Google Gemini API Key** (free tier available)
-- **FXCM API Access Token** (demo account available)
+- Docker and Docker Compose
+- Windows VM with MT5 installed
+- Gemini AI API key
+- Network connectivity between VMs
 
 ### Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/your-username/forex-scalping-bot.git
-cd forex-scalping-bot
+1. **Clone and Setup**
+   ```bash
+   git clone <repository>
+   cd trading-bot-hybrid
+   chmod +x setup.sh
+   ./setup.sh
+   ```
 
-# Copy environment configuration
-cp .env.example .env
+2. **Configure Environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual values:
+   # - GEMINI_API_KEY
+   # - MT5_VM_IP
+   ```
 
-# Edit configuration with your API keys
-nano .env
+3. **Install MT5 Expert Advisor**
+   - Copy `MT5_SignalSender.mq5` to your MT5 `Experts` folder
+   - Compile in MetaEditor
+   - Attach to chart with proper settings
 
-# Add your API keys
-# GEMINI_API_KEY=your_gemini_api_key_here (get from https://makersuite.google.com/app/apikey)
-# FXCM_ACCESS_TOKEN=your_fxcm_access_token_here (get from https://www.fxcm.com/services/api-trading/)
+4. **Start Services**
+   ```bash
+   docker-compose up -d
+   ```
 
-# Optional: Choose your preferred model (default: gemini-1.5-pro)
-# GEMINI_MODEL=gemma-3n-e4b-it
+## 📊 Service URLs
 
-# Build and start services
-docker-compose up -d
+- **Trading Bot API**: http://localhost:8080
+- **InfluxDB UI**: http://localhost:8086
+- **Grafana Dashboard**: http://localhost:3000
+- **Redis**: localhost:6379
 
-# Verify deployment
-curl http://localhost/health
+## 🔐 Default Credentials
 
-# Test Gemini integration
-cd python && python test_gemini_integration.py
+- **InfluxDB**: admin / trading123!
+- **Grafana**: admin / trading123!
+- **Redis**: trading123!
 
-# Test different models
-python model_tester.py --list
-python model_tester.py --model gemma-3n-e4b-it
+## 📡 API Endpoints
 
-# Test FXCM integration
-make test-fxcm
-```
+### Trading Bot API
 
-### Configuration
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check |
+| POST | `/api/signals` | Receive market signals from MT5 |
+| POST | `/api/trade-execution` | Receive trade execution updates |
+| GET | `/api/statistics` | Get trading statistics |
 
-Edit the configuration files in the `config/` directory:
-
+### Example Signal Payload
 ```json
 {
-  "trading": {
-    "symbols": ["EUR/USD", "GBP/USD", "USD/JPY"],
-    "max_positions": 10,
-    "paper_trading": true
+  "signal_type": "market_data",
+  "symbol": "EURUSD",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "bid": 1.10250,
+  "ask": 1.10255,
+  "spread": 0.00005,
+  "volume": 1000,
+  "ohlc": {
+    "open": 1.10245,
+    "high": 1.10260,
+    "low": 1.10240,
+    "close": 1.10250
   },
-  "risk": {
-    "max_daily_drawdown": 0.05,
-    "max_position_size": 0.02,
-    "kelly_fraction": 0.25
+  "indicators": {
+    "rsi": 65.5,
+    "ma_fast": 1.10248,
+    "ma_slow": 1.10235,
+    "bollinger_upper": 1.10270,
+    "bollinger_lower": 1.10220,
+    "atr": 0.00015
   },
-  "strategies": {
-    "ema_crossover": {
-      "enabled": true,
-      "fast_ema": 12,
-      "slow_ema": 26
-    }
-  }
+  "source": "MT5_Windows_VM",
+  "version": "1.0"
 }
 ```
 
-## 📊 Dashboard Access
+## 🤖 AI Decision Making
 
-- **Trading Dashboard**: http://localhost
-- **Monitoring (Grafana)**: http://localhost:3000
-- **API Documentation**: http://localhost/docs
+The system uses Google's Gemini AI to analyze market signals and make trading decisions:
 
-## 🔧 Development
+### Input Analysis
+- Technical indicators (RSI, Moving Averages, Bollinger Bands, ATR)
+- Price action and momentum
+- Market volatility and liquidity
+- Risk factors and spread analysis
 
-### Building from Source
-
-```bash
-# C++ Engine
-cd cpp
-mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make -j$(nproc)
-
-# Python Services
-cd python/price_predictor
-pip install -r requirements.txt
-python app.py
-
-# React Dashboard
-cd frontend
-npm install
-npm start
+### Decision Output
+```json
+{
+  "action": "BUY|SELL|HOLD",
+  "confidence": 0.85,
+  "reasoning": "Strong bullish momentum with RSI oversold recovery...",
+  "risk_level": "MEDIUM",
+  "stop_loss": 1.10200,
+  "take_profit": 1.10350,
+  "position_size": 0.01,
+  "time_horizon": "SHORT"
+}
 ```
 
-### Running Tests
+## 📈 Monitoring and Analytics
 
-```bash
-# C++ Tests
-cd cpp/build
-make test
+### InfluxDB Measurements
 
-# Python Tests
-cd python
-pytest
+1. **market_signals**: Raw market data from MT5
+2. **ai_decisions**: AI analysis results
+3. **trade_executions**: Simulated/actual trade executions
+4. **mt5_executions**: Real MT5 trade confirmations
 
-# Frontend Tests
-cd frontend
-npm test
+### Grafana Dashboards
+
+- **Real-time Signals**: Live market data visualization
+- **AI Performance**: Decision accuracy and confidence tracking
+- **Risk Metrics**: Risk assessment and position monitoring
+- **Trade History**: Execution history and performance analysis
+
+## ⚙️ Configuration
+
+### MT5 Expert Advisor Settings
+
+```mql5
+input string   LinuxBotURL = "http://192.168.1.100:8080";
+input string   APIEndpoint = "/api/signals";
+input int      SignalInterval = 60;  // seconds
+input double   MinPriceChange = 0.0010;
+input bool     EnableSignals = true;
+input string   TradingSymbols = "EURUSD,GBPUSD,USDJPY";
 ```
 
-## 📈 Performance Benchmarks
+### Linux Bot Configuration
 
-### Latency Metrics
-- **Order Execution**: < 10ms average
-- **Market Data Processing**: < 1ms per tick
-- **Risk Calculations**: < 5ms
-- **Database Queries**: < 100ms
+```python
+# Environment Variables
+INFLUXDB_URL=http://localhost:8086
+INFLUXDB_TOKEN=your-token
+GEMINI_API_KEY=your-api-key
+BOT_PORT=8080
+MIN_CONFIDENCE_THRESHOLD=0.7
+```
 
-### Throughput Metrics
-- **Market Data**: 1000+ ticks/second
-- **Order Processing**: 100+ orders/second
-- **Concurrent Users**: 10+ dashboard users
-- **Database TPS**: 1000+ transactions/second
+## 🔒 Security Considerations
 
-## 🔒 Security Features
+- API key management through environment variables
+- Network isolation using Docker networks
+- Authentication tokens for InfluxDB access
+- Encrypted communication between components
+- Input validation and sanitization
 
-- **API Key Encryption** and secure storage
-- **SSL/TLS** encryption for all communications
-- **Rate Limiting** and DDoS protection
-- **Input Validation** and sanitization
-- **Audit Logging** for compliance
+## 🐛 Troubleshooting
 
-## 📚 Documentation
+### Common Issues
 
-- [**Architecture Guide**](ARCHITECTURE.md) - System architecture overview
-- [**FXCM Migration Guide**](FXCM_MIGRATION_GUIDE.md) - Migration from OANDA to FXCM
-- [**Technical Specifications**](TECHNICAL_SPECIFICATIONS.md) - Detailed technical specs
-- [**Implementation Guide**](IMPLEMENTATION_GUIDE.md) - Step-by-step implementation
-- [**Deployment Guide**](DEPLOYMENT_SPECIFICATIONS.md) - Production deployment
-- [**API Documentation**](docs/API.md) - REST API reference
+1. **Connection Refused**
+   ```bash
+   # Check service status
+   docker-compose ps
+   
+   # View logs
+   docker-compose logs trading-bot
+   ```
+
+2. **MT5 Signal Not Received**
+   - Verify network connectivity between VMs
+   - Check MT5 EA logs in MetaTrader
+   - Validate Linux bot IP in MT5 settings
+
+3. **AI API Errors**
+   - Verify Gemini API key
+   - Check API rate limits
+   - Monitor bot logs for error details
+
+4. **Database Connection Issues**
+   - Verify InfluxDB is running
+   - Check connection credentials
+   - Validate network connectivity
+
+### Log Locations
+
+- **Trading Bot**: `./logs/trading_bot.log`
+- **Docker Logs**: `docker-compose logs [service]`
+- **MT5 Logs**: MT5 Experts tab
+
+## 🔄 Data Flow
+
+1. **Signal Generation**: MT5 monitors market and generates signals
+2. **Signal Transmission**: HTTP POST to Linux bot API
+3. **AI Analysis**: Gemini AI processes signal data
+4. **Decision Storage**: Results stored in InfluxDB
+5. **Execution Logic**: High-confidence decisions trigger actions
+6. **Monitoring**: Grafana visualizes all metrics
+
+## 📝 Development
+
+### Adding New Indicators
+
+1. **MT5 Side**: Update `CalculateIndicators()` function
+2. **Linux Side**: Update signal processing logic
+3. **Database**: Add new fields to InfluxDB schema
+4. **Dashboard**: Update Grafana visualizations
+
+### Extending AI Logic
+
+1. **Prompt Engineering**: Modify AI prompts in `create_ai_prompt()`
+2. **Decision Logic**: Update `execute_decision()` for new actions
+3. **Risk Management**: Enhance risk assessment algorithms
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests
+4. Add tests and documentation
 5. Submit a pull request
 
-## 📄 License
+## 📞 Support
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## ⚠️ Disclaimer
-
-**Important**: This software is for educational and research purposes. Trading financial instruments involves substantial risk of loss. Past performance does not guarantee future results. Always test thoroughly in paper trading mode before using real money.
-
-## 🆘 Support
-
-- **Documentation**: Check our comprehensive docs
-- **Issues**: Report bugs on GitHub Issues
-- **Discussions**: Join our GitHub Discussions
-- **Email**: support@forex-scalping-bot.com
-
-## 🎯 Roadmap
-
-### Version 1.0 (Current)
-- ✅ Core trading engine
-- ✅ Basic scalping strategies
-- ✅ OANDA broker integration
-- ✅ React dashboard
-- ✅ Docker deployment
-
-### Version 1.1 (Planned)
-- 🔄 MetaTrader integration
-- 🔄 Advanced AI models
-- 🔄 Mobile app
-- 🔄 Cloud deployment options
-
-### Version 2.0 (Future)
-- 📋 Multi-asset support (Crypto, Stocks)
-- 📋 Advanced portfolio management
-- 📋 Social trading features
-- 📋 Algorithmic strategy marketplace
-
-## 📊 Statistics
-
-- **Lines of Code**: 50,000+
-- **Test Coverage**: 90%+
-- **Documentation**: 100% API coverage
-- **Performance**: Sub-millisecond execution
-- **Reliability**: 99.9% uptime target
+For issues and questions:
+- Create GitHub issues
+- Check troubleshooting section
+- Review logs for error details
 
 ---
 
-**Built with ❤️ for the trading community**
-
-*Star ⭐ this repository if you find it useful!*
+**⚠️ Disclaimer**: This system is for educational purposes. Always test thoroughly before using with real money. Trading involves risk of loss.
