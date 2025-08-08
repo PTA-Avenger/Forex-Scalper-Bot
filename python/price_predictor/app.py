@@ -16,7 +16,6 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gemini_predictor import GeminiPredictor, MarketData, PredictionResult
-from sentiment_analyzer.gemini_sentiment import GeminiSentimentAnalyzer, NewsItem, SocialPost, SentimentResult
 from model_config import ModelManager, AVAILABLE_MODELS, print_available_models
 
 # Initialize Flask app
@@ -54,7 +53,6 @@ redis_client = redis.Redis(
 
 # Initialize Gemini models
 gemini_predictor = GeminiPredictor(GEMINI_API_KEY)
-sentiment_analyzer = GeminiSentimentAnalyzer(GEMINI_API_KEY)
 
 # Thread pool for async operations
 executor = ThreadPoolExecutor(max_workers=4)
@@ -178,81 +176,9 @@ def predict_price():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-@app.route('/sentiment', methods=['POST'])
-def analyze_sentiment():
-    """Analyze market sentiment using Gemini"""
-    try:
-        data = request.get_json()
-        
-        # Validate input
-        if 'symbol' not in data:
-            return jsonify({'error': 'Missing required field: symbol'}), 400
-        
-        symbol = data['symbol']
-        
-        # Parse news items
-        news_items = []
-        for item_data in data.get('news', []):
-            news_items.append(NewsItem(
-                title=item_data.get('title', ''),
-                content=item_data.get('content', ''),
-                source=item_data.get('source', 'Unknown'),
-                url=item_data.get('url', ''),
-                published_at=datetime.fromisoformat(item_data.get('published_at', datetime.now().isoformat())),
-                symbol=symbol
-            ))
-        
-        # Parse social posts
-        social_posts = []
-        for post_data in data.get('social', []):
-            social_posts.append(SocialPost(
-                content=post_data.get('content', ''),
-                platform=post_data.get('platform', 'Unknown'),
-                author=post_data.get('author', 'Anonymous'),
-                engagement=post_data.get('engagement', 0),
-                posted_at=datetime.fromisoformat(post_data.get('posted_at', datetime.now().isoformat())),
-                symbol=symbol
-            ))
-        
-        # Generate sentiment analysis using Gemini
-        sentiment = executor.submit(
-            run_async,
-            sentiment_analyzer.analyze_sentiment(symbol, news_items, social_posts)
-        ).result(timeout=60)  # 60 second timeout
-        
-        # Format response
-        response = {
-            'symbol': sentiment.symbol,
-            'overall_sentiment': sentiment.overall_sentiment,
-            'confidence': sentiment.confidence,
-            'key_themes': sentiment.key_themes,
-            'news_sentiment': sentiment.news_sentiment,
-            'social_sentiment': sentiment.social_sentiment,
-            'risk_factors': sentiment.risk_factors,
-            'opportunities': sentiment.opportunities,
-            'summary': sentiment.summary,
-            'timestamp': sentiment.timestamp.isoformat(),
-            'model_info': {
-                'provider': 'Google Gemini',
-                'model': sentiment_analyzer.model_name
-            }
-        }
-        
-        # Cache the sentiment
-        cache_key = f"sentiment:{symbol}:{int(datetime.now().timestamp() // 600)}"
-        redis_client.setex(cache_key, 600, json.dumps(response))  # 10 minute cache
-        
-        logger.info(f"Generated sentiment for {symbol}: {sentiment.overall_sentiment:.2f} ({sentiment.confidence:.2f})")
-        
-        return jsonify(response), 200
-        
-    except Exception as e:
-        logger.error(f"Error generating sentiment: {e}")
-        return jsonify({
-            'error': 'Sentiment analysis failed',
-            'message': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
+# Sentiment analysis endpoint removed - not needed for minimal hybrid setup
+# The sentiment analysis functionality required the separate sentiment_analyzer service
+# which is not included in this minimal configuration focused on MT5 signal processing
 
 @app.route('/multi-timeframe', methods=['POST'])
 def multi_timeframe_analysis():
