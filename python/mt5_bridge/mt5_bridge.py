@@ -19,15 +19,24 @@ import signal
 import os
 
 try:
-    import MetaTrader5 as mt5
     import pandas as pd
     import numpy as np
     from flask import Flask, request, jsonify
     import requests
 except ImportError as e:
     print(f"Required dependencies not installed: {e}")
-    print("Please install: pip install MetaTrader5 pandas numpy flask requests")
+    print("Please install: pip install pandas numpy flask requests")
     sys.exit(1)
+
+# Optional MetaTrader5 import for local MT5 integration mode
+try:
+    import MetaTrader5 as mt5
+    MT5_AVAILABLE = True
+    print("MetaTrader5 library available - can use local MT5 integration mode")
+except ImportError:
+    mt5 = None
+    MT5_AVAILABLE = False
+    print("MetaTrader5 library not available - using signal receiving mode only")
 
 # Configure logging
 logging.basicConfig(
@@ -63,10 +72,19 @@ class MT5Bridge:
         
         @self.app.route('/health', methods=['GET'])
         def health():
+            mt5_version = None
+            if self.connected and MT5_AVAILABLE and mt5:
+                try:
+                    mt5_version = mt5.version()
+                except:
+                    mt5_version = "unavailable"
+            
             return jsonify({
                 'status': 'healthy',
                 'connected': self.connected,
-                'mt5_version': mt5.version() if self.connected else None
+                'mt5_available': MT5_AVAILABLE,
+                'mt5_version': mt5_version,
+                'mode': 'signal_receiver' if not MT5_AVAILABLE else 'local_mt5'
             })
         
         @self.app.route('/connect', methods=['POST'])
