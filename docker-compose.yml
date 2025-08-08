@@ -196,24 +196,24 @@ services:
           memory: 512M
 
 
-  # Signal Processor Service
-  signal-processor:
-    build:
-      context: ./python/signal_processor
-      dockerfile: Dockerfile
-    environment:
-      - FLASK_ENV=development
-      - FLASK_DEBUG=1
-      - REDIS_HOST=redis
-      - POSTGRES_HOST=postgres
-    ports:
-      - "5006:5003"  # Changed external port to avoid conflict
-    depends_on:
-      - redis
-      - postgres
-    networks:
-      - forex-network
-    restart: unless-stopped
+  # Signal Processor Service (DISABLED - directory not found)
+  # signal-processor:
+  #   build:
+  #     context: ./python/signal_processor
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     - FLASK_ENV=development
+  #     - FLASK_DEBUG=1
+  #     - REDIS_HOST=redis
+  #     - POSTGRES_HOST=postgres
+  #   ports:
+  #     - "5006:5003"  # Changed external port to avoid conflict
+  #   depends_on:
+  #     - redis
+  #     - postgres
+  #   networks:
+  #     - forex-network
+  #   restart: unless-stopped
 
   # React Dashboard
   react-dashboard:
