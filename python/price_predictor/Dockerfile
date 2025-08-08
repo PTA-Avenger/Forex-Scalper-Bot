@@ -70,7 +70,7 @@ WORKDIR /app
 # Copy only necessary files (removed model directories as we use Gemini API)
 COPY app.py /app/
 COPY gemini_predictor.py /app/
-COPY sentiment_analyzer/ /app/sentiment_analyzer/
+COPY model_config.py /app/
 
 # Create directories for logs (no need for model storage with Gemini API)
 RUN mkdir -p /app/logs \
