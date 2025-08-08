@@ -22,14 +22,21 @@ from model_config import ModelManager, AVAILABLE_MODELS, print_available_models
 app = Flask(__name__)
 CORS(app)
 
-# Configure logging
+# Configure logging with fallback for permission issues
+handlers = [logging.StreamHandler()]  # Always have console output
+
+# Try to add file handler, but don't fail if permissions are wrong
+try:
+    # Ensure logs directory exists
+    os.makedirs('/app/logs', exist_ok=True)
+    handlers.append(logging.FileHandler('/app/logs/price_predictor.log'))
+except (PermissionError, OSError) as e:
+    print(f"Warning: Could not create log file, using console only: {e}")
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/price_predictor.log'),
-        logging.StreamHandler()
-    ]
+    handlers=handlers
 )
 logger = logging.getLogger(__name__)
 
