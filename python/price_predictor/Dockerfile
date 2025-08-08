@@ -92,11 +92,11 @@ EXPOSE 5001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:5001/health || exit 1
+    CMD curl -f http://localhost:5000/health || exit 1
 
 # Use Gunicorn for production
 CMD ["gunicorn", \
-     "--bind", "0.0.0.0:5001", \
+     "--bind", "0.0.0.0:5000", \
      "--workers", "2", \
      "--timeout", "60", \
      "--keep-alive", "2", \
