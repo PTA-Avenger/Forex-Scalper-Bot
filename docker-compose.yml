@@ -147,7 +147,7 @@ services:
       - influx-data:/var/lib/influxdb2
       - influx-config:/etc/influxdb2
     ports:
-      - "8086:8086"
+      - "8087:8086"
     networks:
       - forex-network
     restart: unless-stopped
