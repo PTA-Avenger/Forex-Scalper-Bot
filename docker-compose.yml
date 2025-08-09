@@ -11,6 +11,7 @@ services:
       - REDIS_HOST=redis
       - POSTGRES_HOST=postgres
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
       - INFLUXDB_URL=http://influxdb:8086
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-forex-super-secret-token-12345}
       - INFLUXDB_ORG=forex-trading-org
